@@ -439,7 +439,7 @@ nav{flex:1;padding:8px 6px;overflow-y:auto}
 <script>
 // Auto-detect API base: use '' (same origin) when served by Flask,
 // fall back to localhost:5050 when opened as a file://
-const API = (location.protocol === 'file:' || location.port !== '5050')
+const API = location.protocol === 'file:'
   ? 'http://localhost:5050'
   : '';let token=localStorage.getItem('as_token')||'';let currentUser=null;let allRoutines=[];let allAthletes=[];let currentRoutineId=null;let pollTimer=null;let allElements=[];let elGroup='All';let uploadFile=null;
 async function apiCall(method,path,body){const opts={method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})}};if(body)opts.body=JSON.stringify(body);const r=await fetch(API+path,opts);const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;}
