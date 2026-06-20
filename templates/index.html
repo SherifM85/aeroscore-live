@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AeroScore AI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#070e1a;--bg2:#0d1628;--bg3:#0a1020;--border:rgba(255,255,255,.07);--muted:#64748b;--text:#e2e8f0;--sky:#0ea5e9;--sky2:#38bdf8;--vio:#8b5cf6;--grn:#10b981;--amb:#f59e0b;--ros:#f43f5e}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:rgba(148,163,184,.2);border-radius:2px}
+#app{display:flex;height:100vh;overflow:hidden}
+#sidebar{width:210px;background:#080f1c;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+#main{flex:1;overflow-y:auto}
+.logo{padding:14px 16px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--border)}
+.logo-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--sky),var(--vio));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+nav{flex:1;padding:8px 6px;overflow-y:auto}
+.ni{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;font-size:12px;cursor:pointer;color:var(--muted);transition:all .12s;border:1px solid transparent;margin-bottom:1px;user-select:none}
+.ni:hover{color:#cbd5e1;background:rgba(255,255,255,.04)}
+.ni.on{color:var(--sky2);background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.15)}
+.ni-ic{font-size:13px;width:16px;text-align:center;flex-shrink:0}
+.user-f{padding:8px 6px;border-top:1px solid var(--border)}
+.av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--vio),var(--sky));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+.pg{display:none;padding:22px 26px 32px}
+.pg.on{display:block}
+.ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+.pt{font-size:19px;font-weight:700;color:#f1f5f9}
+.ps{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-bottom:14px}
+.ch{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.ct{font-size:12px;font-weight:600;color:#e2e8f0}
+.cb{padding:16px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px}
+.si{font-size:20px;margin-bottom:8px}
+.sv{font-size:20px;font-weight:700;color:#f1f5f9;margin-bottom:2px}
+.sl{font-size:11px;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;transition:all .12s;border:none;font-family:inherit}
+.btn-p{background:var(--sky);color:#fff}.btn-p:hover{background:var(--sky2)}
+.btn-g{background:rgba(255,255,255,.05);color:#94a3b8;border:1px solid rgba(255,255,255,.09)}.btn-g:hover{color:#f1f5f9}
+.btn-s{background:rgba(16,185,129,.1);color:#34d399;border:1px solid rgba(16,185,129,.2)}
+.btn-d{background:rgba(244,63,94,.1);color:#fb7185;border:1px solid rgba(244,63,94,.2)}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.b{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:500}
+.b-sky{background:rgba(14,165,233,.12);color:var(--sky2);border:1px solid rgba(14,165,233,.2)}
+.b-vio{background:rgba(139,92,246,.12);color:#a78bfa;border:1px solid rgba(139,92,246,.2)}
+.b-grn{background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2)}
+.b-amb{background:rgba(245,158,11,.12);color:#fbbf24;border:1px solid rgba(245,158,11,.2)}
+.b-ros{background:rgba(244,63,94,.1);color:#fb7185;border:1px solid rgba(244,63,94,.2)}
+.b-slt{background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.2)}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:9px 14px;font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)}
+.tbl td{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);color:#cbd5e1;vertical-align:middle}
+.tbl tr:last-child td{border:none}
+.tbl tr:hover td{background:rgba(255,255,255,.02);cursor:pointer}
+.lbl{display:block;font-size:11px;font-weight:500;color:#94a3b8;margin-bottom:5px}
+.inp{width:100%;padding:8px 12px;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:7px;color:#e2e8f0;font-size:12px;outline:none;transition:border .15s;font-family:inherit}
+.inp:focus{border-color:var(--sky);box-shadow:0 0 0 2px rgba(14,165,233,.12)}
+.inp::placeholder{color:#2d3f55}
+.fg{margin-bottom:12px}
+.fr2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.req{color:#fb7185;margin-left:2px}
+.dz{border:2px dashed rgba(255,255,255,.1);border-radius:10px;padding:26px;text-align:center;cursor:pointer;transition:all .18s;background:var(--bg3);margin-bottom:12px}
+.dz:hover,.dz.drag{border-color:rgba(14,165,233,.45);background:rgba(14,165,233,.04)}
+.prog{background:var(--bg3);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:12px 14px;margin-bottom:12px;display:none}
+.prog-track{height:5px;background:#1a2744;border-radius:99px;overflow:hidden;margin:7px 0 4px}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--sky),var(--sky2));border-radius:99px;transition:width .35s ease;width:0%}
+.pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--sky2);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tl{position:relative;height:44px;background:var(--bg3);border-radius:7px;overflow:hidden;cursor:pointer;border:1px solid var(--border)}
+.tl-ph{position:absolute;top:0;bottom:0;width:2px;background:var(--sky);z-index:5}
+.tl-ph::before{content:'';position:absolute;top:-3px;left:-4px;width:10px;height:10px;border-radius:50%;background:var(--sky)}
+.ev-mk{position:absolute;top:7px;bottom:7px;border-radius:2px;cursor:pointer;transition:transform .1s}
+.ev-mk:hover{transform:scaleY(1.5);opacity:1!important}
+.tabs{display:flex;border-bottom:1px solid var(--border);padding:0 14px;overflow-x:auto}
+.tab{padding:10px 12px;font-size:12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;white-space:nowrap;flex-shrink:0}
+.tab:hover{color:#94a3b8}
+.tab.on{color:var(--sky2);border-bottom-color:var(--sky)}
+.tc{display:none;padding:16px}
+.tc.on{display:block}
+.cbar{display:flex;align-items:center;gap:7px}
+.cbar-t{flex:1;height:4px;background:#1a2744;border-radius:99px;overflow:hidden}
+.cbar-f{height:100%;border-radius:99px}
+.alert{display:flex;gap:9px;padding:10px 13px;border-radius:8px;font-size:11px;line-height:1.55;margin-bottom:12px}
+.a-warn{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
+.a-info{background:rgba(14,165,233,.06);border:1px solid rgba(14,165,233,.2);color:#7dd3fc}
+.a-ok{background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);color:#6ee7b7}
+.a-err{background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.2);color:#fda4af}
+.ev-item{border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-bottom:7px}
+.ev-item.acc{border-color:rgba(16,185,129,.25)}
+.ev-item.rej{opacity:.4}
+.ev-hd{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer}
+.ev-bd{padding:10px 12px;border-top:1px solid rgba(255,255,255,.05);background:rgba(0,0,0,.2);display:none}
+.ev-item.open .ev-bd{display:block}
+.score-big{font-size:44px;font-weight:800;color:#f1f5f9;line-height:1;letter-spacing:-2px}
+.score-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12px}
+.score-row:last-child{border:none}
+.vp{width:100%;aspect-ratio:16/9;background:#000;border-radius:9px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:#1e3050}
+#auth{position:fixed;inset:0;background:var(--bg);display:flex;z-index:200}
+.auth-l{width:46%;background:linear-gradient(135deg,#0a1f3d,#0d1628,#130f2a);display:flex;flex-direction:column;justify-content:center;padding:36px;border-right:1px solid var(--border)}
+.auth-r{flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+@media(max-width:640px){#sidebar{display:none}.g4{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <div class="auth-l">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:26px">
+      <div class="logo-icon" style="width:38px;height:38px;font-size:16px">&#9889;</div>
+      <div><div style="font-size:18px;font-weight:700;color:#fff">AeroScore AI</div><div style="font-size:11px;color:var(--sky2)">Aerobic Gymnastics Platform</div></div>
+    </div>
+    <h2 style="font-size:24px;font-weight:700;color:#fff;margin-bottom:10px;line-height:1.3">AI-assisted scoring for elite gymnastics</h2>
+    <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:18px">Real MediaPipe pose estimation. Evidence-based event detection. Human-reviewed scoring.</p>
+    <div>
+      <div style="display:flex;gap:8px;margin-bottom:7px;font-size:12px;color:#94a3b8"><span>&#127919;</span>33-point body landmark tracking per frame</div>
+      <div style="display:flex;gap:8px;margin-bottom:7px;font-size:12px;color:#94a3b8"><span>&#128202;</span>Artistry + Execution + Difficulty scoring</div>
+      <div style="display:flex;gap:8px;margin-bottom:7px;font-size:12px;color:#94a3b8"><span>&#9997;</span>Full judge review and score override workflow</div>
+      <div style="display:flex;gap:8px;font-size:12px;color:#94a3b8"><span>&#128269;</span>AI confidence scores with full evidence</div>
+    </div>
+    <div class="alert a-warn" style="margin-top:18px">&#9888;&#65039; AI analysis is a recommendation only. Final scoring requires a qualified human judge.</div>
+  </div>
+  <div class="auth-r">
+    <div style="width:100%;max-width:320px">
+      <h2 style="font-size:20px;font-weight:700;color:#f1f5f9;margin-bottom:3px">Welcome back</h2>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:20px">Sign in to your account</p>
+      <div class="fg"><label class="lbl">Email</label><input class="inp" id="l-email" type="email" placeholder="you@example.com" value="admin@aeroscore.ai"></div>
+      <div class="fg"><label class="lbl">Password</label><input class="inp" id="l-pass" type="password" placeholder="••••••••" value="admin123" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="alert a-err" id="l-err" style="display:none">&#9888; <span id="l-err-t"></span></div>
+      <button class="btn btn-p" style="width:100%;justify-content:center;padding:10px;font-size:13px;margin-bottom:10px" id="l-btn" onclick="doLogin()">Sign in</button>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--muted)">
+        <b style="color:#64748b">Demo accounts:</b><br>
+        admin@aeroscore.ai / admin123<br>
+        coach@aeroscore.ai / coach123<br>
+        judge@aeroscore.ai / judge123
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div id="sidebar">
+    <div class="logo">
+      <div class="logo-icon">&#9889;</div>
+      <div><div style="font-size:12px;font-weight:700;color:#fff">AeroScore AI</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em">Platform</div></div>
+    </div>
+    <nav>
+      <div class="ni on" onclick="nav('dashboard',this)"><span class="ni-ic">&#9647;</span>Dashboard</div>
+      <div class="ni" onclick="nav('athletes',this)"><span class="ni-ic">&#128100;</span>Athletes</div>
+      <div class="ni" onclick="nav('routines',this)"><span class="ni-ic">&#127916;</span>Routines</div>
+      <div class="ni" onclick="nav('upload',this)"><span class="ni-ic">&#11014;</span>Upload Routine</div>
+      <div class="ni" onclick="nav('analysis',this)" id="ni-analysis" style="display:none"><span class="ni-ic">&#128202;</span>Analysis</div>
+      <div class="ni" onclick="nav('rules',this)"><span class="ni-ic">&#128203;</span>Rules &amp; Elements</div>
+      <div class="ni" onclick="nav('settings',this)"><span class="ni-ic">&#9881;</span>Settings</div>
+    </nav>
+    <div class="user-f">
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px">
+        <div class="av" id="s-av">?</div>
+        <div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:500;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="s-name">—</div><div style="font-size:10px;color:var(--muted)" id="s-role">—</div></div>
+        <button onclick="doLogout()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px" title="Sign out">&#9167;</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="main">
+    <!-- DASHBOARD -->
+    <div id="pg-dashboard" class="pg on">
+      <div class="ph">
+        <div><div class="pt">Dashboard</div><div class="ps">AI-assisted aerobic gymnastics scoring</div></div>
+        <button class="btn btn-p" onclick="nav('upload',document.querySelectorAll('.ni')[3])">&#11014; Upload Routine</button>
+      </div>
+      <div class="g4">
+        <div class="stat"><div class="si">&#127916;</div><div class="sv" id="ds-total">—</div><div class="sl">Total Routines</div></div>
+        <div class="stat"><div class="si">&#9203;</div><div class="sv" id="ds-pending">—</div><div class="sl">Pending Review</div></div>
+        <div class="stat"><div class="si">&#128200;</div><div class="sv" id="ds-avg">—</div><div class="sl">Avg Final Score</div></div>
+        <div class="stat"><div class="si">&#128100;</div><div class="sv" id="ds-ath">—</div><div class="sl">Athletes</div></div>
+      </div>
+      <div class="g2">
+        <div class="card">
+          <div class="ch"><span class="ct">Recent Routines</span><span style="font-size:11px;color:var(--sky2);cursor:pointer" onclick="nav('routines',document.querySelectorAll('.ni')[2])">View all →</span></div>
+          <table class="tbl"><thead><tr><th>Athlete</th><th>Category</th><th>Status</th><th style="text-align:right">Final</th></tr></thead>
+          <tbody id="dash-routines"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px">Loading…</td></tr></tbody></table>
+        </div>
+        <div class="card">
+          <div class="ch"><span class="ct">Athletes</span></div>
+          <div id="dash-athletes"><div style="padding:16px;text-align:center;color:var(--muted)">Loading…</div></div>
+        </div>
+      </div>
+      <div class="alert a-warn">&#9888;&#65039; <strong>AI recommendation only.</strong> All scores must be reviewed and approved by a qualified human judge before official use.</div>
+    </div>
+
+    <!-- ATHLETES -->
+    <div id="pg-athletes" class="pg">
+      <div class="ph">
+        <div><div class="pt">Athletes</div><div class="ps" id="ath-sub">Loading…</div></div>
+        <button class="btn btn-p" onclick="showAddPlayer()">+ Add Athlete</button>
+      </div>
+      <div id="add-player-form" style="display:none" class="card">
+        <div class="ch"><span class="ct">New Athlete</span><button class="btn btn-g btn-sm" onclick="document.getElementById('add-player-form').style.display='none'">✕ Cancel</button></div>
+        <div class="cb">
+          <div class="fr2">
+            <div class="fg"><label class="lbl">Full Name<span class="req">*</span></label><input class="inp" id="np-name" placeholder="Full name"></div>
+            <div class="fg"><label class="lbl">Gender</label><select class="inp" id="np-gender"><option value="">Select…</option><option>female</option><option>male</option></select></div>
+          </div>
+          <div class="fr2">
+            <div class="fg"><label class="lbl">Club</label><input class="inp" id="np-club" placeholder="Club name"></div>
+            <div class="fg"><label class="lbl">Country</label><input class="inp" id="np-country" placeholder="Country"></div>
+          </div>
+          <button class="btn btn-p" onclick="savePlayer()">Create Athlete</button>
+        </div>
+      </div>
+      <div id="ath-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px"><div style="padding:20px;color:var(--muted)">Loading…</div></div>
+    </div>
+
+    <!-- ROUTINES -->
+    <div id="pg-routines" class="pg">
+      <div class="ph">
+        <div><div class="pt">Routines</div><div class="ps" id="rout-sub">Loading…</div></div>
+        <button class="btn btn-p" onclick="nav('upload',document.querySelectorAll('.ni')[3])">&#11014; Upload</button>
+      </div>
+      <input class="inp" id="r-search" placeholder="Search by athlete or category…" style="margin-bottom:12px" oninput="renderRoutines()">
+      <div class="card"><table class="tbl"><thead><tr><th>Athlete</th><th>Category</th><th>Status</th><th style="text-align:right">A</th><th style="text-align:right">E</th><th style="text-align:right">D</th><th style="text-align:right">Final</th><th style="text-align:right">Date</th></tr></thead>
+      <tbody id="r-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px">Loading…</td></tr></tbody></table></div>
+    </div>
+
+    <!-- UPLOAD -->
+    <div id="pg-upload" class="pg">
+      <div class="ph"><div><div class="pt">Upload Routine</div><div class="ps">Upload a video for real AI pose analysis and scoring</div></div></div>
+      <div style="max-width:560px">
+        <span class="b b-vio" id="role-badge" style="margin-bottom:14px;display:inline-flex">Loading…</span>
+        <div class="alert a-info">&#8505;&#65039; <strong>Best results:</strong> Fixed camera · Full body visible · 1080p · Good lighting · Single athlete</div>
+        <input type="file" id="file-inp" accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,.mp4,.mov,.webm,.avi" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden" onchange="onFileChange(event)">
+        <div id="dz" class="dz" onclick="document.getElementById('file-inp').click()" ondragover="dzOv(event)" ondragleave="dzLv()" ondrop="dzDrop(event)">
+          <div style="font-size:26px;margin-bottom:8px">&#11014;</div>
+          <div style="font-size:13px;font-weight:500;color:#cbd5e1;margin-bottom:4px" id="dz-t">Click to browse or drag &amp; drop</div>
+          <div style="font-size:11px;color:#334155">MP4, MOV, WebM, AVI · Max 500 MB</div>
+          <div style="display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding:6px 16px;background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.22);color:var(--sky2);border-radius:7px;font-size:12px" onclick="event.stopPropagation();document.getElementById('file-inp').click()">&#128193; Browse files</div>
+        </div>
+        <div id="file-card" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:32px;height:32px;background:rgba(14,165,233,.1);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">&#127916;</div>
+            <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="fc-name">—</div><div style="font-size:11px;color:var(--muted);margin-top:1px" id="fc-meta">—</div></div>
+            <button onclick="clearFile()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px;border-radius:5px" title="Remove">✕</button>
+          </div>
+          <div style="margin-top:7px;font-size:11px;color:#334155;cursor:pointer" onclick="document.getElementById('file-inp').click()">↩ Choose different file</div>
+        </div>
+        <div class="prog" id="uprog">
+          <div style="display:flex;align-items:center;gap:7px"><span class="pulse"></span><span style="font-size:12px;font-weight:500;color:#cbd5e1;flex:1" id="uprog-lbl">Uploading…</span><span style="font-size:12px;font-weight:700;color:var(--sky2)" id="uprog-pct"></span></div>
+          <div class="prog-track"><div class="prog-fill" id="uprog-fill"></div></div>
+          <div style="font-size:10px;color:#334155" id="uprog-sub">Sending to server…</div>
+        </div>
+        <div class="fg"><label class="lbl">Athlete<span class="req">*</span></label>
+          <div style="display:flex;gap:8px">
+            <select class="inp" id="u-ath" style="flex:1"><option value="">Select athlete…</option></select>
+            <button class="btn btn-g btn-sm" onclick="showAddPlayer();nav('athletes',document.querySelectorAll('.ni')[1])" style="white-space:nowrap">+ New</button>
+          </div>
+          <div style="font-size:10px;color:#fb7185;margin-top:3px;display:none" id="u-ath-e">Please select an athlete</div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label class="lbl">Category<span class="req">*</span></label>
+            <select class="inp" id="u-cat"><option value="">Select…</option><option>Individual Men</option><option>Individual Women</option><option>Mixed Pair</option><option>Trio</option><option>Group</option><option>Step Aerobics</option></select>
+            <div style="font-size:10px;color:#fb7185;margin-top:3px;display:none" id="u-cat-e">Please select a category</div>
+          </div>
+          <div class="fg"><label class="lbl">Age Group</label>
+            <select class="inp" id="u-age"><option value="">Select…</option><option>Mini</option><option>Youth</option><option>Junior</option><option>Senior</option><option>Adult</option></select>
+          </div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label class="lbl">Competition</label><input class="inp" id="u-comp" placeholder="e.g. Nationals 2024"></div>
+          <div class="fg"><label class="lbl">Routine Date</label><input class="inp" type="date" id="u-date"></div>
+        </div>
+        <div class="fg"><label class="lbl">Declared Elements <span style="font-size:10px;font-weight:400;color:#334155">(optional)</span></label>
+          <input class="inp" id="u-elems" placeholder="Element codes, e.g. J4, T2, S2">
+        </div>
+        <div class="alert a-err" id="u-err" style="display:none">&#9888; <span id="u-err-t"></span></div>
+        <button class="btn btn-p" style="width:100%;justify-content:center;padding:11px;font-size:13px" id="u-btn" onclick="doUpload()">&#11014; Upload &amp; Analyze</button>
+        <p style="font-size:10px;color:#1e3050;text-align:center;margin-top:8px">AI scores require judge review before official use.</p>
+      </div>
+    </div>
+
+    <!-- ANALYSIS -->
+    <div id="pg-analysis" class="pg">
+      <div class="ph">
+        <div>
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px" id="an-badges"></div>
+          <div class="pt" id="an-title">Loading…</div>
+          <div class="ps" id="an-sub">—</div>
+        </div>
+        <div style="display:flex;gap:7px">
+          <button class="btn btn-g btn-sm" onclick="recalcScore()">↺ Recalculate</button>
+          <button class="btn btn-s btn-sm" id="an-approve-btn" onclick="approveScore()">✓ Approve Score</button>
+        </div>
+      </div>
+      <div id="an-processing" style="display:none" class="card">
+        <div style="padding:16px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span class="pulse"></span>
+            <div style="flex:1"><div style="font-size:13px;font-weight:500;color:var(--sky2)" id="an-proc-step">Processing…</div><div style="font-size:11px;color:var(--muted)">Real MediaPipe pose estimation running</div></div>
+            <span style="font-size:13px;font-weight:700;color:var(--sky2)" id="an-proc-pct">0%</span>
+          </div>
+          <div class="prog-track"><div class="prog-fill" id="an-proc-fill"></div></div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px">
+            <div id="ps-0" style="font-size:10px;color:#1e3050;display:flex;align-items:center;gap:4px"><span>○</span>Extract frames</div>
+            <div id="ps-1" style="font-size:10px;color:#1e3050;display:flex;align-items:center;gap:4px"><span>○</span>Pose estimation</div>
+            <div id="ps-2" style="font-size:10px;color:#1e3050;display:flex;align-items:center;gap:4px"><span>○</span>Event detection</div>
+            <div id="ps-3" style="font-size:10px;color:#1e3050;display:flex;align-items:center;gap:4px"><span>○</span>Score calc</div>
+          </div>
+        </div>
+      </div>
+      <div id="an-warnings"></div>
+      <div style="display:grid;grid-template-columns:1fr 250px;gap:14px">
+        <div>
+          <div class="vp" id="an-vp"><div style="text-align:center"><div style="font-size:32px;margin-bottom:6px">&#127916;</div><div style="font-size:12px">No video</div></div></div>
+          <div class="card" id="an-tl-card" style="display:none">
+            <div style="padding:12px 14px 6px">
+              <div style="font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Event Timeline</div>
+              <div class="tl" id="tl" onclick="seekTL(event)"><div class="tl-ph" id="tl-ph" style="left:0%"></div><div id="tl-events"></div></div>
+              <div style="display:flex;justify-content:space-between;font-size:9px;color:#1e3050;margin-top:3px;padding:0 2px"><span>0:00</span><span id="tl-mid">—</span><span id="tl-end">—</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="tabs">
+              <div class="tab on" onclick="stab(this,'tb-ov')">Overview</div>
+              <div class="tab" onclick="stab(this,'tb-ev')">Events (<span id="ev-count">0</span>)</div>
+              <div class="tab" onclick="stab(this,'tb-sc')">Score Breakdown</div>
+              <div class="tab" onclick="stab(this,'tb-jd')">Judge Review</div>
+            </div>
+            <div id="tb-ov" class="tc on">
+              <div class="g3" id="tb-ov-stats" style="margin-bottom:12px"></div>
+              <div class="alert a-warn">&#9888;&#65039; AI analysis is a recommendation only. Final scoring must be reviewed and approved by a qualified human judge.</div>
+            </div>
+            <div id="tb-ev" class="tc"><div id="ev-list"><div style="color:var(--muted);text-align:center;padding:20px">No events detected yet</div></div></div>
+            <div id="tb-sc" class="tc"><div id="sc-detail"><div style="color:var(--muted);padding:16px">No score calculated yet</div></div></div>
+            <div id="tb-jd" class="tc">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <span style="font-size:11px;font-weight:500;color:#94a3b8">Manual Deductions</span>
+                <button class="btn btn-g btn-sm" onclick="toggleDedForm()">+ Add</button>
+              </div>
+              <div id="ded-form" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+                <div class="fr2" style="margin-bottom:8px">
+                  <div><label class="lbl">Type</label><select class="inp" id="ded-type"><option>fall</option><option>time</option><option>line</option><option>form</option><option>other</option></select></div>
+                  <div><label class="lbl">Amount</label><input class="inp" type="number" step="0.1" min="0" max="10" value="0.3" id="ded-amt"></div>
+                </div>
+                <div style="margin-bottom:8px"><label class="lbl">Reason</label><input class="inp" id="ded-rsn" placeholder="Description of deduction"></div>
+                <div style="display:flex;gap:7px"><button class="btn btn-p btn-sm" onclick="addDeduction()">Add</button><button class="btn btn-g btn-sm" onclick="toggleDedForm()">Cancel</button></div>
+              </div>
+              <div id="ded-list"><div style="font-size:11px;color:var(--muted)">No manual deductions</div></div>
+              <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)">
+                <div id="an-approved-badge" style="display:none" class="alert a-ok">✓ Score approved</div>
+                <button class="btn btn-s" style="width:100%;justify-content:center" onclick="approveScore()">✓ Approve Final Score</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:10px">
+            <div style="padding:12px 14px 4px">
+              <div style="font-size:9px;color:#334155;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Score Summary</div>
+              <div style="text-align:center;margin-bottom:14px">
+                <div class="score-big" id="sc-final">—</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:3px">Final Score</div>
+                <div id="sc-approved-tag" style="display:none;font-size:10px;color:#34d399;margin-top:4px">✓ Approved</div>
+              </div>
+              <div style="padding-bottom:12px">
+                <div class="score-row"><span style="color:var(--muted)">Artistry (A)</span><span style="color:var(--sky2);font-family:monospace;font-weight:600" id="sc-a">—</span></div>
+                <div class="score-row"><span style="color:var(--muted)">Execution (E)</span><span style="color:#a78bfa;font-family:monospace;font-weight:600" id="sc-e">—</span></div>
+                <div class="score-row"><span style="color:var(--muted)">Difficulty (D)</span><span style="color:#34d399;font-family:monospace;font-weight:600" id="sc-d">—</span></div>
+                <div class="score-row" id="sc-ded-row" style="display:none"><span style="color:var(--muted)">Deductions</span><span style="color:#fb7185;font-family:monospace;font-weight:600" id="sc-ded">—</span></div>
+                <div style="display:flex;justify-content:space-between;padding-top:8px"><span style="font-weight:600;color:#f1f5f9;font-size:12px">Final</span><span style="font-weight:800;color:#f1f5f9;font-size:16px;font-family:monospace" id="sc-f2">—</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div style="padding:12px 14px">
+              <div style="font-size:9px;color:#334155;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Events</div>
+              <div style="font-size:11px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted)">Total</span><span id="ev-total">—</span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted)">Accepted</span><span style="color:#34d399" id="ev-acc">—</span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted)">Rejected</span><span style="color:#fb7185" id="ev-rej">—</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Pending</span><span style="color:#fbbf24" id="ev-pend">—</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div style="padding:12px 14px">
+              <div style="font-size:9px;color:#334155;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">AI Quality</div>
+              <div class="cbar" style="margin-bottom:5px"><div class="cbar-t"><div class="cbar-f" id="conf-bar" style="background:#10b981;width:0%"></div></div><span style="font-size:12px;font-weight:700" id="conf-pct">—</span></div>
+              <div style="font-size:11px" id="conf-lbl">—</div>
+              <div style="font-size:10px;color:#334155;margin-top:2px" id="conf-detail">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RULES -->
+    <div id="pg-rules" class="pg">
+      <div class="ph"><div><div class="pt">Rules &amp; Elements</div><div class="ps">Scoring configuration and element database</div></div></div>
+      <div class="alert a-info">&#9889; <strong>AeroScore Standard Rules v1.0</strong> is active. A = max 10.0, E starts at 10.0, D accumulates element values.</div>
+      <div class="card">
+        <div class="ch"><span class="ct" id="el-ct">Difficulty Elements</span><div style="display:flex;gap:5px;flex-wrap:wrap" id="el-filters"></div></div>
+        <table class="tbl"><thead><tr><th>Code</th><th>Name</th><th>Group</th><th>Family</th><th style="text-align:right">Value</th></tr></thead>
+        <tbody id="el-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Loading…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="pg-settings" class="pg">
+      <div class="ph"><div><div class="pt">Settings</div></div></div>
+      <div style="max-width:480px">
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><span class="ct">Account</span></div>
+          <div class="cb" style="font-size:12px">
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">Name</span><span id="set-name">—</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">Email</span><span id="set-email">—</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">Role</span><span id="set-role">—</span></div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:var(--muted)">Club</span><span id="set-club">—</span></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="ch"><span class="ct">System — Live Status</span></div>
+          <div class="cb" style="font-size:12px">
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">Platform</span><span>AeroScore AI v1.0.0</span></div>
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">AI Engine</span><span style="color:#34d399">&#10003; MediaPipe v0.10 Live</span></div>
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span style="color:var(--muted)">OpenCV</span><span style="color:#34d399">&#10003; v4.13 Live</span></div>
+            <div style="display:flex;justify-content:space-between;padding:7px 0"><span style="color:var(--muted)">Database</span><span style="color:#34d399">&#10003; SQLite Live</span></div>
+          </div>
+        </div>
+        <div class="alert a-warn">&#9888;&#65039; <strong>AI Scoring Disclaimer:</strong> AeroScore AI provides AI-assisted recommendations only. All scores must be reviewed by a qualified human judge before official competition use.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Auto-detect API base: use '' (same origin) when served by Flask,
+// fall back to localhost:5050 when opened as a file://
+const API = (location.protocol === 'file:' || location.port !== '5050')
+  ? 'http://localhost:5050'
+  : '';let token=localStorage.getItem('as_token')||'';let currentUser=null;let allRoutines=[];let allAthletes=[];let currentRoutineId=null;let pollTimer=null;let allElements=[];let elGroup='All';let uploadFile=null;
+async function apiCall(method,path,body){const opts={method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})}};if(body)opts.body=JSON.stringify(body);const r=await fetch(API+path,opts);const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d;}
+async function doLogin(){const email=document.getElementById('l-email').value.trim();const pass=document.getElementById('l-pass').value;const btn=document.getElementById('l-btn');const err=document.getElementById('l-err');err.style.display='none';btn.disabled=true;btn.textContent='Signing in…';try{const d=await apiCall('POST','/api/auth/login',{email,password:pass});token=d.token;localStorage.setItem('as_token',token);currentUser=d.user;document.getElementById('auth').style.display='none';document.getElementById('app').style.display='flex';afterLogin();}catch(e){err.style.display='flex';const isFetch=e.message==='Failed to fetch'||e.message.includes('NetworkError')||e.message.includes('refused');document.getElementById('l-err-t').textContent=isFetch?'Cannot reach server — make sure app.py is running (python3 start.py)':e.message;}finally{btn.disabled=false;btn.textContent='Sign in';}}
+function doLogout(){token='';localStorage.removeItem('as_token');currentUser=null;document.getElementById('app').style.display='none';document.getElementById('auth').style.display='flex';}
+async function afterLogin(){document.getElementById('s-av').textContent=currentUser.name[0];document.getElementById('s-name').textContent=currentUser.name;document.getElementById('s-role').textContent=currentUser.role.toLowerCase();document.getElementById('set-name').textContent=currentUser.name;document.getElementById('set-email').textContent=currentUser.email;document.getElementById('set-role').textContent=currentUser.role;document.getElementById('set-club').textContent=currentUser.club||'—';document.getElementById('role-badge').textContent=currentUser.role+' — full access';await Promise.all([loadDashboard(),loadAthletes(),loadElements()]);}
+window.addEventListener('DOMContentLoaded',async()=>{if(token){try{currentUser=await apiCall('GET','/api/auth/me');document.getElementById('auth').style.display='none';document.getElementById('app').style.display='flex';afterLogin();}catch{token='';localStorage.removeItem('as_token');}}});
+function nav(id,el){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));document.getElementById('pg-'+id).classList.add('on');if(el)el.classList.add('on');if(id==='routines')loadRoutines();if(id==='athletes')loadAthletes();if(id==='dashboard')loadDashboard();if(id==='rules')renderElements();if(id==='upload')populateAthleteSelect();}
+const BMAP={APPROVED:'b-grn',REVIEWING:'b-amb',ANALYZED:'b-vio',PROCESSING:'b-sky',UPLOADING:'b-sky',FAILED:'b-ros',PENDING:'b-slt',QUEUED:'b-sky'};
+async function loadDashboard(){try{const[rData,aths]=await Promise.all([apiCall('GET','/api/routines'),apiCall('GET','/api/players')]);allRoutines=rData.routines||[];allAthletes=aths||[];document.getElementById('ds-total').textContent=allRoutines.length;document.getElementById('ds-pending').textContent=allRoutines.filter(r=>['REVIEWING','ANALYZED'].includes(r.status)).length;const sc=allRoutines.filter(r=>r.final_score);document.getElementById('ds-avg').textContent=sc.length?(sc.reduce((s,r)=>s+r.final_score,0)/sc.length).toFixed(3):'—';document.getElementById('ds-ath').textContent=allAthletes.length;document.getElementById('dash-routines').innerHTML=allRoutines.slice(0,5).map(r=>`<tr onclick="openRoutine('${r.id}')"><td><div style="display:flex;align-items:center;gap:7px"><div class="av" style="width:22px;height:22px;font-size:9px">${(r.player_name||'?')[0]}</div><span style="color:#f1f5f9">${r.player_name||'—'}</span></div></td><td style="color:var(--muted)">${r.category}</td><td><span class="b ${BMAP[r.status]||'b-slt'}">${r.status}</span></td><td style="text-align:right;font-family:monospace;font-weight:700;color:#f1f5f9">${r.final_score!=null?r.final_score.toFixed(3):'—'}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px">No routines yet</td></tr>';document.getElementById('dash-athletes').innerHTML=allAthletes.slice(0,4).map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.04)"><div class="av" style="width:24px;height:24px;font-size:10px">${a.full_name[0]}</div><div style="flex:1"><div style="font-size:12px;font-weight:500;color:#f1f5f9">${a.full_name}</div><div style="font-size:10px;color:var(--muted)">${a.routine_count||0} routines</div></div></div>`).join('')||'<div style="padding:14px;text-align:center;color:var(--muted)">No athletes yet</div>';}catch(e){console.error('Dashboard:',e);}}
+async function loadAthletes(){try{allAthletes=await apiCall('GET','/api/players');document.getElementById('ath-sub').textContent=allAthletes.length+' athlete'+(allAthletes.length!==1?'s':'');document.getElementById('ath-grid').innerHTML=allAthletes.length?allAthletes.map(a=>`<div class="card" style="padding:14px;cursor:pointer" onclick="nav('routines',document.querySelectorAll('.ni')[2])"><div style="display:flex;gap:10px;margin-bottom:12px"><div class="av" style="width:36px;height:36px;font-size:13px;flex-shrink:0">${a.full_name[0]}</div><div><div style="font-size:13px;font-weight:600;color:#f1f5f9">${a.full_name}</div><div style="font-size:11px;color:var(--muted)">${a.club||'—'}</div><div style="font-size:10px;color:#334155">${a.country||''}</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:7px"><div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center"><div style="font-size:15px;font-weight:700;color:#f1f5f9">${a.routine_count||0}</div><div style="font-size:9px;color:#334155">Routines</div></div><div style="background:var(--bg3);border-radius:7px;padding:8px;text-align:center"><div style="font-size:11px;font-weight:500;color:#cbd5e1;margin-top:2px">${a.gender||'—'}</div><div style="font-size:9px;color:#334155">Gender</div></div></div></div>`).join(''):'<div style="color:var(--muted);padding:16px;text-align:center;grid-column:1/-1">No athletes yet</div>';}catch(e){console.error(e);}}
+function showAddPlayer(){nav('athletes',document.querySelectorAll('.ni')[1]);document.getElementById('add-player-form').style.display='block';setTimeout(()=>document.getElementById('np-name').focus(),100);}
+async function savePlayer(){const name=document.getElementById('np-name').value.trim();if(!name){alert('Full name required');return;}try{await apiCall('POST','/api/players',{fullName:name,gender:document.getElementById('np-gender').value,club:document.getElementById('np-club').value,country:document.getElementById('np-country').value});document.getElementById('add-player-form').style.display='none';document.getElementById('np-name').value='';await loadAthletes();populateAthleteSelect();}catch(e){alert('Error: '+e.message);}}
+async function loadRoutines(){try{const d=await apiCall('GET','/api/routines');allRoutines=d.routines||[];document.getElementById('rout-sub').textContent=allRoutines.length+' total';renderRoutines();}catch(e){console.error(e);}}
+function renderRoutines(){const q=(document.getElementById('r-search')?.value||'').toLowerCase();const rows=q?allRoutines.filter(r=>(r.player_name||'').toLowerCase().includes(q)||r.category.toLowerCase().includes(q)):allRoutines;document.getElementById('r-tbody').innerHTML=rows.length?rows.map(r=>`<tr onclick="openRoutine('${r.id}')"><td><div style="display:flex;align-items:center;gap:7px"><div class="av" style="width:22px;height:22px;font-size:9px">${(r.player_name||'?')[0]}</div><span style="color:#f1f5f9;font-weight:500">${r.player_name||'—'}</span></div></td><td>${r.category}</td><td><span class="b ${BMAP[r.status]||'b-slt'}">${r.status}</span></td><td style="text-align:right;color:var(--sky2);font-family:monospace">${r.artistry_score!=null?r.artistry_score.toFixed(3):'—'}</td><td style="text-align:right;color:#a78bfa;font-family:monospace">${r.execution_score!=null?r.execution_score.toFixed(3):'—'}</td><td style="text-align:right;color:#34d399;font-family:monospace">${r.difficulty_score!=null?r.difficulty_score.toFixed(3):'—'}</td><td style="text-align:right;font-weight:700;color:#f1f5f9;font-family:monospace">${r.final_score!=null?r.final_score.toFixed(3):'—'}</td><td style="text-align:right;color:var(--muted);font-size:10px">${r.created_at?r.created_at.substring(0,10):'—'}</td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px">No routines found</td></tr>';}
+async function populateAthleteSelect(){try{if(!allAthletes.length)allAthletes=await apiCall('GET','/api/players');const sel=document.getElementById('u-ath');sel.innerHTML='<option value="">Select athlete…</option>'+allAthletes.map(a=>`<option value="${a.id}">${a.full_name}</option>`).join('');}catch(e){console.error(e);}}
+function onFileChange(e){const f=e.target.files&&e.target.files[0];if(!f)return;const ok={'video/mp4':1,'video/quicktime':1,'video/webm':1,'video/x-msvideo':1};if(!ok[f.type]&&!f.name.match(/\.(mp4|mov|webm|avi)$/i)){showUErr('Unsupported format');return;}if(f.size>500*1024*1024){showUErr('File too large. Max 500 MB.');return;}hideUErr();uploadFile=f;document.getElementById('dz').style.display='none';document.getElementById('file-card').style.display='block';document.getElementById('fc-name').textContent=f.name;const size=f.size<1048576?(f.size/1024).toFixed(0)+' KB':(f.size/1048576).toFixed(1)+' MB';document.getElementById('fc-meta').textContent=size+' · '+({'video/mp4':'MP4','video/quicktime':'MOV','video/webm':'WebM','video/x-msvideo':'AVI'}[f.type]||'Video');e.target.value='';}
+function clearFile(){uploadFile=null;document.getElementById('file-card').style.display='none';document.getElementById('dz').style.display='block';}
+function dzOv(e){e.preventDefault();document.getElementById('dz').classList.add('drag');document.getElementById('dz-t').textContent='Drop to upload';}
+function dzLv(){document.getElementById('dz').classList.remove('drag');document.getElementById('dz-t').textContent='Click to browse or drag & drop';}
+function dzDrop(e){e.preventDefault();dzLv();const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);onFileChange({target:{files:dt.files,value:''}});}}
+function showUErr(m){document.getElementById('u-err').style.display='flex';document.getElementById('u-err-t').textContent=m;}
+function hideUErr(){document.getElementById('u-err').style.display='none';}
+async function doUpload(){hideUErr();let ok=true;if(!uploadFile){showUErr('Please select a video file.');ok=false;}const ath=document.getElementById('u-ath').value;if(!ath){document.getElementById('u-ath-e').style.display='block';ok=false;}else{document.getElementById('u-ath-e').style.display='none';}const cat=document.getElementById('u-cat').value;if(!cat){document.getElementById('u-cat-e').style.display='block';ok=false;}else{document.getElementById('u-cat-e').style.display='none';}if(!ok)return;const btn=document.getElementById('u-btn');btn.disabled=true;try{setUpState('Preparing…','',0);const routine=await apiCall('POST','/api/routines',{playerId:ath,category:cat,ageGroup:document.getElementById('u-age').value||undefined,routineDate:document.getElementById('u-date').value||undefined,competitionName:document.getElementById('u-comp').value||undefined,declaredElements:document.getElementById('u-elems').value.split(',').map(s=>s.trim()).filter(Boolean)});setUpState('Uploading '+uploadFile.name+'…','Sending to server',5);await uploadXHR(routine.id,uploadFile,p=>setUpState('Uploading…',''+p+'%',5+Math.round(p*0.7)));setUpState('Starting AI analysis…','Queuing MediaPipe pose estimation',80);await apiCall('POST','/api/routines/'+routine.id+'/analyze');setUpState('Analysis started!','Running in background',100);setTimeout(()=>{document.getElementById('uprog').style.display='none';btn.disabled=false;btn.innerHTML='&#11014; Upload &amp; Analyze';clearFile();openRoutine(routine.id);},800);}catch(e){showUErr(e.message||'Upload failed');btn.disabled=false;btn.innerHTML='&#11014; Upload &amp; Analyze';document.getElementById('uprog').style.display='none';}}
+function setUpState(lbl,sub,pct){const p=document.getElementById('uprog');p.style.display='block';document.getElementById('uprog-lbl').textContent=lbl;document.getElementById('uprog-sub').textContent=sub;document.getElementById('uprog-pct').textContent=pct<100?pct+'%':'';document.getElementById('uprog-fill').style.width=pct+'%';}
+function uploadXHR(rid,file,onProg){return new Promise((res,rej)=>{const fd=new FormData();fd.append('video',file,file.name);const xhr=new XMLHttpRequest();xhr.upload.addEventListener('progress',e=>{if(e.lengthComputable)onProg(Math.round(e.loaded/e.total*100));});xhr.addEventListener('load',()=>{if(xhr.status<300)res(JSON.parse(xhr.responseText));else{try{rej(new Error(JSON.parse(xhr.responseText).error));}catch{rej(new Error('Upload failed'));}}});xhr.addEventListener('error',()=>rej(new Error('Network error')));xhr.open('POST',API+'/api/routines/'+rid+'/upload');if(token)xhr.setRequestHeader('Authorization','Bearer '+token);xhr.send(fd);});}
+async function openRoutine(id){currentRoutineId=id;nav('analysis',null);document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));document.getElementById('ni-analysis').style.display='flex';document.getElementById('ni-analysis').classList.add('on');if(pollTimer)clearInterval(pollTimer);await loadAnalysis(id);}
+const EVCOLORS={jump:'#0ea5e9',turn:'#8b5cf6',leap:'#06b6d4',floor_support:'#10b981',split:'#ec4899',possible_difficulty_element:'#f59e0b',fall:'#f43f5e',landing_instability:'#fb923c',poor_alignment:'#fbbf24',out_of_frame:'#64748b'};
+function fmt(t){const m=Math.floor(t/60);const s=Math.floor(t%60);return m+':'+((''+s).padStart(2,'0'))+'.'+(Math.floor((t%1)*10));}
+async function loadAnalysis(id){try{const d=await apiCall('GET','/api/routines/'+id+'/analysis');const r=d.routine;const job=d.job;document.getElementById('an-title').textContent=r.player_name||'Routine';document.getElementById('an-sub').textContent=[r.category,r.age_group,r.competition_name].filter(Boolean).join(' · ');const proc=job&&['QUEUED','PROCESSING'].includes(job.status);document.getElementById('an-processing').style.display=proc?'block':'none';if(proc){const pct=job.progress||0;document.getElementById('an-proc-step').textContent=job.current_step||'Processing…';document.getElementById('an-proc-pct').textContent=pct+'%';document.getElementById('an-proc-fill').style.width=pct+'%';['ps-0','ps-1','ps-2','ps-3'].forEach((s,i)=>{const el=document.getElementById(s);const done=pct>(i+1)*25;const act=pct>i*25&&!done;el.style.color=done?'#34d399':act?'var(--sky2)':'#1e3050';el.querySelector('span').textContent=done?'✓':act?'●':'○';});if(!pollTimer)pollTimer=setInterval(()=>loadAnalysis(id),4000);}else{if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
+const vp=document.getElementById('an-vp');if(r.video_url)vp.innerHTML=`<video controls src="${r.video_url}" style="width:100%;height:100%;object-fit:contain"></video>`;
+const confPct=r.ai_confidence?Math.round(r.ai_confidence*100):0;const confLbl=confPct>=80?'High Confidence':confPct>=60?'Medium Confidence':confPct>0?'Low Confidence':'Pending';document.getElementById('conf-bar').style.width=confPct+'%';document.getElementById('conf-bar').style.background=confPct>=80?'#10b981':confPct>=60?'#f59e0b':'#f43f5e';document.getElementById('conf-pct').textContent=confPct?confPct+'%':'—';document.getElementById('conf-pct').style.color=confPct>=80?'#34d399':confPct>=60?'#fbbf24':'#fb7185';document.getElementById('conf-lbl').textContent=confLbl;
+const meta=r.video_metadata?(typeof r.video_metadata==='string'?JSON.parse(r.video_metadata):r.video_metadata):{};document.getElementById('conf-detail').textContent=meta.duration?`${Math.round(meta.duration)}s · ${r.events?.length||0} events`:'Waiting for analysis…';
+const warns=r.confidence_warnings?(typeof r.confidence_warnings==='string'?JSON.parse(r.confidence_warnings):r.confidence_warnings):[];const wmap={out_of_frame:'Athlete out of frame detected',high_low_confidence_ratio:'Many low-confidence frames — manual review recommended',motion_blur_detected:'Motion blur detected',poor_lighting:'Poor lighting conditions',low_resolution:'Video resolution is low'};document.getElementById('an-warnings').innerHTML=warns.map(w=>wmap[w]?`<div class="alert a-warn">&#9888;&#65039; ${wmap[w]}</div>`:'').join('');
+document.getElementById('tb-ov-stats').innerHTML=[['Duration',meta.duration?Math.floor(meta.duration/60)+':'+((''+Math.floor(meta.duration%60)).padStart(2,'0')):'—'],['Resolution',meta.resolution||'—'],['FPS',meta.fps?meta.fps+' FPS':'—'],['Frames Analyzed',meta.frame_count||'—'],['Events',r.events?.length||0],['Status',`<span class="b ${BMAP[r.status]||'b-slt'}">${r.status}</span>`]].map(([l,v])=>`<div style="background:var(--bg3);border-radius:7px;padding:10px"><div style="font-size:9px;color:#334155;text-transform:uppercase;margin-bottom:4px">${l}</div><div style="font-size:13px;font-weight:600;color:#f1f5f9">${v}</div></div>`).join('');
+const events=r.events||[];document.getElementById('ev-count').textContent=events.length;document.getElementById('ev-total').textContent=events.length;document.getElementById('ev-acc').textContent=events.filter(e=>e.accepted==1).length;document.getElementById('ev-rej').textContent=events.filter(e=>e.rejected==1).length;document.getElementById('ev-pend').textContent=events.filter(e=>e.accepted==null&&e.rejected==null).length;
+renderTimeline(events,meta.duration||0);renderEventList(events,id);
+const sc=r.score||{};document.getElementById('sc-final').textContent=sc.final_score!=null?sc.final_score.toFixed(3):'—';document.getElementById('sc-f2').textContent=sc.final_score!=null?sc.final_score.toFixed(3):'—';document.getElementById('sc-a').textContent=sc.artistry_score!=null?sc.artistry_score.toFixed(3):'—';document.getElementById('sc-e').textContent=sc.execution_score!=null?sc.execution_score.toFixed(3):'—';document.getElementById('sc-d').textContent=sc.difficulty_score!=null?'+'+sc.difficulty_score.toFixed(3):'—';if(sc.total_deductions>0){document.getElementById('sc-ded-row').style.display='flex';document.getElementById('sc-ded').textContent='−'+sc.total_deductions.toFixed(3);}if(sc.approved_at){document.getElementById('sc-approved-tag').style.display='block';document.getElementById('an-approved-badge').style.display='flex';}
+if(sc.calculation_details){try{const cd=typeof sc.calculation_details==='string'?JSON.parse(sc.calculation_details):sc.calculation_details;document.getElementById('sc-detail').innerHTML=`<div class="g3" style="margin-bottom:12px"><div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center"><div style="font-size:9px;color:#334155;text-transform:uppercase;margin-bottom:5px">Artistry (A)</div><div style="font-size:22px;font-weight:800;color:var(--sky2)">${(sc.artistry_score||0).toFixed(3)}</div></div><div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center"><div style="font-size:9px;color:#334155;text-transform:uppercase;margin-bottom:5px">Execution (E)</div><div style="font-size:22px;font-weight:800;color:#a78bfa">${(sc.execution_score||0).toFixed(3)}</div></div><div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center"><div style="font-size:9px;color:#334155;text-transform:uppercase;margin-bottom:5px">Difficulty (D)</div><div style="font-size:22px;font-weight:800;color:#34d399">${(sc.difficulty_score||0).toFixed(3)}</div></div></div><div style="background:var(--bg3);border-radius:8px;padding:12px;font-size:11px">${cd.artistry?`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Artistry</div>${[['Rhythm consistency (30%)',cd.artistry.rhythm],['Movement variety (25%)',cd.artistry.variety],['Spatial use (25%)',cd.artistry.spatial],['Body symmetry (20%)',cd.artistry.symmetry]].filter(([,v])=>v!=null).map(([l,v])=>`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span style="color:var(--muted)">${l}</span><div class="cbar" style="width:120px"><div class="cbar-t"><div class="cbar-f" style="width:${Math.round(v*100)}%;background:var(--sky2)"></div></div><span style="color:#f1f5f9;font-size:10px;min-width:26px;text-align:right">${Math.round(v*100)}%</span></div></div>`).join('')}`:''}${cd.execution?.deductions_applied?.length?`<div style="border-top:1px solid rgba(255,255,255,.06);margin-top:10px;padding-top:10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Execution deductions</div>${cd.execution.deductions_applied.map(d=>`<div style="display:flex;justify-content:space-between;color:var(--muted);margin-bottom:4px"><span>${d.type.replace(/_/g,' ')}</span><span style="color:#fb7185">−${d.deduction.toFixed(1)}</span></div>`).join('')}</div>`:''}${cd.difficulty?.elements?.length?`<div style="border-top:1px solid rgba(255,255,255,.06);margin-top:10px;padding-top:10px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Difficulty elements</div>${cd.difficulty.elements.map(e=>`<div style="display:flex;justify-content:space-between;color:var(--muted);margin-bottom:4px"><span>${e.code?`<span style="color:var(--sky2);font-family:monospace">${e.code}</span> `:''} ${e.name||e.type||'Element'} <span style="font-size:10px;color:#334155">(${e.source})</span></span><span style="color:#34d399">+${e.value.toFixed(3)}</span></div>`).join('')}</div>`:''}`;} catch(ex){console.error(ex);}}
+renderDeductions(r.deductions||[]);}catch(e){console.error('Analysis:',e);}}
+function renderTimeline(events,dur){const tl=document.getElementById('an-tl-card');if(!events.length||!dur){tl.style.display='none';return;}tl.style.display='block';const fmtT=t=>{const m=Math.floor(t/60);const s=Math.floor(t%60);return m+':'+((''+s).padStart(2,'0'));};document.getElementById('tl-mid').textContent=fmtT(dur/2);document.getElementById('tl-end').textContent=fmtT(dur);document.getElementById('tl-events').innerHTML=events.map(ev=>{const l=(ev.start_time/dur*100).toFixed(1);const w=Math.max(.5,((ev.end_time-ev.start_time)/dur*100)).toFixed(1);const c=EVCOLORS[ev.event_type]||'#475569';return`<div class="ev-mk" style="left:${l}%;width:${w}%;background:${c};opacity:${ev.rejected?0.2:(ev.confidence||0.7)}" title="${ev.event_type.replace(/_/g,' ')} ${fmtT(ev.start_time)}"></div>`;}).join('');}
+function renderEventList(events,rid){document.getElementById('ev-list').innerHTML=events.length?events.map((ev,i)=>{const c=EVCOLORS[ev.event_type]||'#475569';const cc=ev.confidence>=.8?'#34d399':ev.confidence>=.65?'#fbbf24':'#fb923c';const cl=ev.confidence>=.8?'High':ev.confidence>=.65?'Medium':'Low';const st=ev.accepted==1?'<span style="font-size:10px;color:#34d399">✓ Accepted</span>':ev.rejected==1?'<span style="font-size:10px;color:#fb7185">✕ Rejected</span>':'<span style="font-size:10px;color:#fbbf24">⏳ Pending</span>';const evid=ev.evidence?(typeof ev.evidence==='string'?JSON.parse(ev.evidence):ev.evidence):{};return`<div class="ev-item ${ev.accepted==1?'acc':ev.rejected==1?'rej':''}" id="evr-${i}"><div class="ev-hd" onclick="toggleEv(${i})"><div style="width:7px;height:7px;border-radius:50%;background:${c};flex-shrink:0"></div><div style="flex:1"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:12px;font-weight:500;color:#f1f5f9">${ev.event_type.replace(/_/g,' ')}</span><span style="font-size:10px;padding:1px 7px;border-radius:99px;background:${cc}18;color:${cc};border:1px solid ${cc}35">${Math.round((ev.confidence||0)*100)}% · ${cl}</span>${ev.severity?`<span style="font-size:10px;color:var(--muted)">${ev.severity}</span>`:''}</div><div style="font-size:10px;color:#334155;margin-top:1px">${fmt(ev.start_time)} – ${fmt(ev.end_time)}</div></div>${st}<span style="color:#334155;font-size:10px;margin-left:4px">▾</span></div><div class="ev-bd">${evid.explanation?`<p style="font-size:11px;color:var(--muted);margin-bottom:8px">${evid.explanation}</p>`:''}<input class="inp" placeholder="Judge note (optional)" style="margin-bottom:7px;font-size:11px" id="evn-${i}"><div style="display:flex;gap:6px"><button class="btn btn-s btn-sm" onclick="doAccept('${ev.id}',${i})">✓ Accept</button><button class="btn btn-d btn-sm" onclick="doReject('${ev.id}',${i})">✕ Reject</button></div></div></div>`;}).join(''):'<div style="color:var(--muted);text-align:center;padding:20px">No events detected yet</div>';}
+function toggleEv(i){document.getElementById('evr-'+i).classList.toggle('open');}
+async function doAccept(eid,i){const note=document.getElementById('evn-'+i)?.value;try{await apiCall('POST','/api/events/'+eid+'/accept',{judgeNotes:note});await loadAnalysis(currentRoutineId);}catch(e){alert(e.message);}}
+async function doReject(eid,i){const note=document.getElementById('evn-'+i)?.value;try{await apiCall('POST','/api/events/'+eid+'/reject',{judgeNotes:note});await loadAnalysis(currentRoutineId);}catch(e){alert(e.message);}}
+function seekTL(e){const r=document.getElementById('tl').getBoundingClientRect();const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));document.getElementById('tl-ph').style.left=(p*100)+'%';const v=document.querySelector('#an-vp video');if(v&&v.duration)v.currentTime=p*v.duration;}
+async function recalcScore(){if(!currentRoutineId)return;try{await apiCall('POST','/api/routines/'+currentRoutineId+'/recalculate-score');await loadAnalysis(currentRoutineId);}catch(e){alert(e.message);}}
+async function approveScore(){if(!currentRoutineId)return;if(!confirm('Approve this score as final?'))return;try{await apiCall('POST','/api/routines/'+currentRoutineId+'/approve');await loadAnalysis(currentRoutineId);}catch(e){alert(e.message);}}
+function renderDeductions(deds){document.getElementById('ded-list').innerHTML=deds.length?deds.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:var(--bg3);border:1px solid rgba(255,255,255,.06);border-radius:7px;margin-bottom:6px"><div><div style="font-size:12px;color:#f1f5f9;text-transform:capitalize">${(d.deduction_type||'deduction').replace(/_/g,' ')}</div><div style="font-size:10px;color:var(--muted)">${d.reason||'—'}</div></div><span style="font-size:13px;font-weight:700;color:#fb7185">−${(d.amount||0).toFixed(1)}</span></div>`).join(''):'<div style="font-size:11px;color:var(--muted)">No manual deductions</div>';}
+function toggleDedForm(){const f=document.getElementById('ded-form');f.style.display=f.style.display==='none'?'block':'none';}
+async function addDeduction(){if(!currentRoutineId)return;const t=document.getElementById('ded-type').value;const a=parseFloat(document.getElementById('ded-amt').value);const r=document.getElementById('ded-rsn').value||t+' deduction';if(!a||a<=0){alert('Enter a valid amount');return;}try{await apiCall('POST','/api/routines/'+currentRoutineId+'/deductions',{deductionType:t,amount:a,reason:r});document.getElementById('ded-form').style.display='none';document.getElementById('ded-rsn').value='';await loadAnalysis(currentRoutineId);}catch(e){alert(e.message);}}
+function stab(el,id){const card=el.closest('.card');card.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));card.querySelectorAll('.tc').forEach(c=>c.classList.remove('on'));el.classList.add('on');document.getElementById(id).classList.add('on');}
+async function loadElements(){try{allElements=await apiCall('GET','/api/rulesets/difficulty-elements');renderElements();}catch(e){console.error(e);}}
+function renderElements(){const groups=['All',...[...new Set(allElements.map(e=>e.group))]];document.getElementById('el-filters').innerHTML=groups.map(g=>`<button onclick="setElGroup('${g}')" style="padding:3px 9px;border-radius:5px;font-size:10px;cursor:pointer;border:1px solid;background:${elGroup===g?'rgba(14,165,233,.1)':'transparent'};color:${elGroup===g?'var(--sky2)':'#334155'};border-color:${elGroup===g?'rgba(14,165,233,.2)':'rgba(255,255,255,.06)'}">${g}</button>`).join('');const filtered=elGroup==='All'?allElements:allElements.filter(e=>e.group===elGroup);document.getElementById('el-ct').textContent=`Difficulty Elements (${filtered.length})`;document.getElementById('el-tbody').innerHTML=filtered.length?filtered.map(e=>`<tr><td><span style="font-family:monospace;color:var(--sky2);font-weight:700">${e.code}</span></td><td style="color:#f1f5f9">${e.name}</td><td style="color:#94a3b8">${e.group}</td><td style="color:var(--muted);text-transform:capitalize">${(e.family||'').replace(/_/g,' ')}</td><td style="text-align:right;font-weight:700;color:#34d399">+${e.value.toFixed(1)}</td></tr>`).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px">No elements</td></tr>';}
+function setElGroup(g){elGroup=g;renderElements();}
+</script>
+</body>
+</html>

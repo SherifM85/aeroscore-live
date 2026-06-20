@@ -1,0 +1,6 @@
+db/
+static/uploads/
+__pycache__/
+*.pyc
+*.task
+.env
