@@ -533,27 +533,50 @@ def get_report(rid):
     })
 
 # ── AI Analysis Pipeline ──────────────────────────────────────────────────────
+MODEL_URL  = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+MODEL_FILE = BASE_DIR / "pose_landmarker_lite.task"
+
 def _get_pose_model():
-    """Find the best available pose landmarker model (full > heavy > lite)."""
-    # Prefer higher-accuracy models first
-    candidates = [
-        "pose_landmarker_full.task",
-        "pose_landmarker_heavy.task",
-        "pose_landmarker_lite.task",
-        "pose_landmarker.task",
-    ]
-    for name in candidates:
+    """Return path to pose model, downloading it if needed."""
+    # Check for any existing model (prefer full > heavy > lite)
+    for name in ["pose_landmarker_full.task", "pose_landmarker_heavy.task",
+                 "pose_landmarker_lite.task", "pose_landmarker.task"]:
         p = BASE_DIR / name
         if p.exists():
-            print(f"Pose model: {name}")
+            print(f"Pose model found: {name}")
             return str(p)
-    raise FileNotFoundError(
-        "No pose model file found in the aeroscore-live folder.\n"
-        "Download one of these (full = best accuracy, lite = fastest):\n"
-        "  FULL:  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task\n"
-        "  LITE:  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task\n"
-        f"Place the file in: {BASE_DIR}"
-    )
+
+    # Not found — download lite model automatically
+    print("Pose model not found. Downloading (~7 MB)...")
+    import urllib.request, ssl
+    # Create SSL context that works on macOS Python 3.12+ and Railway
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(MODEL_URL, context=ctx, timeout=60) as r:
+            MODEL_FILE.write_bytes(r.read())
+        print(f"Model downloaded to {MODEL_FILE}")
+        return str(MODEL_FILE)
+    except ssl.SSLCertVerificationError:
+        # macOS local dev: SSL cert issue — try without verification as fallback
+        print("SSL verification failed — retrying without verification (local dev only)...")
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(MODEL_URL, context=ctx, timeout=60) as r:
+            MODEL_FILE.write_bytes(r.read())
+        print(f"Model downloaded to {MODEL_FILE}")
+        return str(MODEL_FILE)
+
+
+def _download_model_at_startup():
+    """Pre-download the pose model in a background thread at startup."""
+    def _dl():
+        try:
+            _get_pose_model()
+            print("✅ Pose model ready")
+        except Exception as e:
+            print(f"⚠️  Could not download pose model at startup: {e}")
+            print("   Analysis will attempt download again when first video is uploaded.")
+    threading.Thread(target=_dl, daemon=True).start()
 
 
 def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
@@ -1181,6 +1204,7 @@ if __name__ == "__main__":
     print("🚀 Initialising AeroScore AI...")
     init_db()
     print("✅ Database ready")
-    print("🌐 Starting server on http://localhost:5000")
+    _download_model_at_startup()   # pre-fetch pose model in background
     port = int(os.environ.get("PORT", 5050))
+    print(f"🌐 Starting server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
