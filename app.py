@@ -581,176 +581,178 @@ def _download_model_at_startup():
 
 def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
     """Background thread: MediaPipe Tasks pose analysis (v0.10+ API)."""
-    with app.app_context():
-        db = get_db()
-        def upd(progress, step, log=""):
-            db.execute("UPDATE analysis_jobs SET progress=?, current_step=? WHERE id=?",
-                       (progress, step, job_id))
-            db.commit()
-            if log: print(f"  [{progress}%] {step}: {log}")
+    import sqlite3 as _sq
+    # Direct connection — Flask g is request-scoped, not available in threads
+    db = _sq.connect(str(DB_PATH), detect_types=_sq.PARSE_DECLTYPES)
+    db.row_factory = _sq.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA foreign_keys=ON")
 
-        try:
-            db.execute("UPDATE analysis_jobs SET status='PROCESSING', started_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
-            db.commit()
-            upd(5, "Loading video", "Opening with OpenCV")
+    def upd(progress, step, log=""):
+        db.execute("UPDATE analysis_jobs SET progress=?, current_step=? WHERE id=?",
+                   (progress, step, job_id))
+        db.commit()
+        print(f"  [{progress}%] {step}" + (f": {log}" if log else ""), flush=True)
 
-            import cv2, numpy as np
+    try:
+        db.execute("UPDATE analysis_jobs SET status='PROCESSING', started_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+        db.commit()
+        upd(5, "Loading video", "Opening with OpenCV")
 
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError(f"Cannot open video: {video_path}")
+        import cv2, numpy as np
 
-            fps      = cap.get(cv2.CAP_PROP_FPS) or 30.0
-            n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            width    = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            duration = n_frames / fps if fps > 0 else 0
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Cannot open video: {video_path}")
+
+        fps      = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width    = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        duration = n_frames / fps if fps > 0 else 0
+        cap.release()
+
+        meta = json.dumps({"fps": round(fps, 2), "frame_count": n_frames,
+                           "duration": round(duration, 2), "width": width,
+                           "height": height, "resolution": f"{width}x{height}",
+                           "file_size": Path(video_path).stat().st_size})
+        db.execute("UPDATE routines SET video_metadata=? WHERE id=?", (meta, routine_id))
+        db.commit()
+        upd(12, "Loading pose model", "Checking for model file")
+
+        import mediapipe as mp
+        VisionRunningMode  = mp.tasks.vision.RunningMode
+        PoseLandmarker     = mp.tasks.vision.PoseLandmarker
+        PoseLandmarkerOpts = mp.tasks.vision.PoseLandmarkerOptions
+        BaseOptions        = mp.tasks.BaseOptions
+
+        model_path = _get_pose_model()
+        upd(15, "Extracting frames", f"{duration:.1f}s @ {fps:.0f}fps")
+
+        options = PoseLandmarkerOpts(
+            base_options=BaseOptions(model_asset_path=model_path),
+            running_mode=VisionRunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.4,
+            min_pose_presence_confidence=0.4,
+            min_tracking_confidence=0.4,
+            output_segmentation_masks=False,
+        )
+
+        sample_interval = 0.08   # every 80ms
+        frame_step      = max(2, int(fps * sample_interval))
+        pose_frames     = []
+        prev_lms_raw    = None
+
+        with PoseLandmarker.create_from_options(options) as landmarker:
+            cap           = cv2.VideoCapture(video_path)
+            frame_idx     = 0
+            total_expected = max(1, int(n_frames / frame_step))
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % frame_step == 0:
+                    timestamp = frame_idx / fps
+                    rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                    result    = landmarker.detect(mp_image)
+
+                    if result.pose_landmarks and len(result.pose_landmarks) > 0:
+                        lms        = result.pose_landmarks[0]
+                        key_vis    = [lms[i].visibility for i in [11,12,23,24,25,26,27,28] if i < len(lms)]
+                        confidence = float(np.mean(key_vis)) if key_vis else 0.0
+
+                        def pt(idx):
+                            if idx >= len(lms): return None
+                            lm = lms[idx]
+                            return np.array([lm.x, lm.y]) if lm.visibility > 0.3 else None
+
+                        features = extract_features(lms, pt, prev_lms_raw, frame_idx)
+                        features_json = json.dumps({
+                            k: bool(v)  if isinstance(v, (bool, np.bool_)) else
+                               float(v) if isinstance(v, (float, np.floating, int, np.integer)) else v
+                            for k, v in features.items()
+                            if not isinstance(v, (dict, list))
+                        })
+
+                        db.execute(
+                            "INSERT INTO pose_frames (id,routine_id,timestamp,frame_index,confidence,features) "
+                            "VALUES (?,?,?,?,?,?)",
+                            (_uid(), routine_id, round(timestamp, 3), frame_idx,
+                             round(confidence, 3), features_json))
+                        pose_frames.append({"t": timestamp, "conf": confidence,
+                                            "features": features, "lms": lms})
+                        prev_lms_raw = lms
+                    else:
+                        pose_frames.append({"t": frame_idx / fps, "conf": 0.0,
+                                            "features": {}, "lms": None})
+
+                    processed = len(pose_frames)
+                    if processed % 10 == 0:
+                        db.commit()
+                        progress = 15 + int((processed / total_expected) * 55)
+                        upd(min(70, progress), "Pose estimation", f"{processed} frames")
+
+                frame_idx += 1
+
             cap.release()
 
-            meta = json.dumps({"fps": round(fps, 2), "frame_count": n_frames,
-                               "duration": round(duration, 2), "width": width,
-                               "height": height, "resolution": f"{width}x{height}",
-                               "file_size": Path(video_path).stat().st_size})
-            db.execute("UPDATE routines SET video_metadata=? WHERE id=?", (meta, routine_id))
-            db.commit()
-            upd(12, "Downloading pose model", "First run: fetching ~7 MB model")
+        db.commit()
+        upd(72, "Detecting events", f"Analysing {len(pose_frames)} pose frames")
 
-            # ── MediaPipe Tasks API (v0.10+) ────────────────────────────────
-            import mediapipe as mp
-            VisionRunningMode = mp.tasks.vision.RunningMode
-            PoseLandmarker    = mp.tasks.vision.PoseLandmarker
-            PoseLandmarkerOpts = mp.tasks.vision.PoseLandmarkerOptions
-            BaseOptions       = mp.tasks.BaseOptions
+        events = detect_events(pose_frames, duration)
+        db.execute("DELETE FROM detected_events WHERE routine_id=? AND source='AI_DETECTED'", (routine_id,))
+        for ev in events:
+            db.execute(
+                "INSERT INTO detected_events "
+                "(id,routine_id,event_type,start_time,end_time,confidence,severity,"
+                "evidence,affects_score,source) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (_uid(), routine_id, ev["event_type"], ev["start_time"], ev["end_time"],
+                 ev["confidence"], ev.get("severity"), json.dumps(ev.get("evidence", {})),
+                 1 if ev.get("affects_score", False) else 0, "AI_DETECTED"))
+        db.commit()
+        upd(82, "Calculating confidence")
 
-            model_path = _get_pose_model()
-            upd(15, "Extracting frames", f"{duration:.1f}s @ {fps:.0f}fps")
+        confs        = [pf["conf"] for pf in pose_frames if pf["conf"] > 0]
+        avg_conf     = float(np.mean(confs)) if confs else 0.0
+        low_conf     = sum(1 for c in confs if c < 0.5)
+        no_det       = sum(1 for pf in pose_frames if pf["conf"] == 0)
+        total_frames = max(len(pose_frames), 1)
+        warnings     = []
+        if low_conf / total_frames > 0.3: warnings.append("high_low_confidence_ratio")
+        if no_det   / total_frames > 0.2: warnings.append("out_of_frame")
+        overall_conf = max(0.0, min(1.0,
+            avg_conf * (1 - low_conf / total_frames * 0.5) * (1 - no_det / total_frames * 0.8)))
 
-            options = PoseLandmarkerOpts(
-                base_options=BaseOptions(model_asset_path=model_path),
-                running_mode=VisionRunningMode.IMAGE,
-                num_poses=1,
-                min_pose_detection_confidence=0.4,
-                min_pose_presence_confidence=0.4,
-                min_tracking_confidence=0.4,
-                output_segmentation_masks=False,
-            )
+        db.execute("UPDATE routines SET ai_confidence=?, confidence_warnings=? WHERE id=?",
+                   (round(overall_conf, 3), json.dumps(warnings), routine_id))
+        db.commit()
+        upd(90, "Calculating score")
 
-            # Sample every 80ms for better temporal resolution
-            # Cap at every 2 frames minimum to avoid redundant processing
-            sample_interval = 0.08
-            frame_step  = max(2, int(fps * sample_interval))
-            pose_frames = []
-            prev_lms_raw = None
+        # calculate_score needs its own db connection too
+        _calculate_score_direct(routine_id, db)
 
-            with PoseLandmarker.create_from_options(options) as landmarker:
-                cap = cv2.VideoCapture(video_path)
-                frame_idx   = 0
-                total_expected = max(1, int(n_frames / frame_step))
+        upd(100, "Complete", f"{len(events)} events detected, confidence {overall_conf:.0%}")
+        db.execute("UPDATE analysis_jobs SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
+        db.execute("UPDATE routines SET status='ANALYZED' WHERE id=?", (routine_id,))
+        db.commit()
 
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    if frame_idx % frame_step == 0:
-                        timestamp = frame_idx / fps
-                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                        result = landmarker.detect(mp_image)
-
-                        if result.pose_landmarks and len(result.pose_landmarks) > 0:
-                            lms = result.pose_landmarks[0]   # list of NormalizedLandmark
-
-                            key_indices = [11, 12, 23, 24, 25, 26, 27, 28]
-                            key_vis = [lms[i].visibility for i in key_indices if i < len(lms)]
-                            confidence = float(np.mean(key_vis)) if key_vis else 0.0
-
-                            def pt(idx):
-                                if idx >= len(lms): return None
-                                lm = lms[idx]
-                                if lm.visibility > 0.3:
-                                    return np.array([lm.x, lm.y])
-                                return None
-
-                            features = extract_features(lms, pt, prev_lms_raw, frame_idx)
-                            features_json = json.dumps({
-                                k: bool(v) if isinstance(v, (bool, np.bool_)) else
-                                   float(v) if isinstance(v, (float, np.floating, int, np.integer)) else
-                                   v
-                                for k, v in features.items()
-                                if not isinstance(v, (dict, list))
-                            })
-
-                            pf_id = _uid()
-                            db.execute(
-                                "INSERT INTO pose_frames (id,routine_id,timestamp,frame_index,confidence,features) "
-                                "VALUES (?,?,?,?,?,?)",
-                                (pf_id, routine_id, round(timestamp, 3), frame_idx,
-                                 round(confidence, 3), features_json))
-                            pose_frames.append({"t": timestamp, "conf": confidence,
-                                                "features": features, "lms": lms})
-                            prev_lms_raw = lms
-                        else:
-                            pose_frames.append({"t": frame_idx / fps, "conf": 0.0,
-                                                "features": {}, "lms": None})
-
-                        processed = len(pose_frames)
-                        if processed % 10 == 0:
-                            db.commit()
-                            progress = 15 + int((processed / total_expected) * 55)
-                            upd(min(70, progress), "Pose estimation", f"{processed} frames")
-
-                    frame_idx += 1
-
-                cap.release()
-
-            db.commit()
-            upd(72, "Detecting events", f"Analysing {len(pose_frames)} pose frames")
-
-            # ── Event detection ─────────────────────────────────────────────
-            events = detect_events(pose_frames, duration)
-            db.execute("DELETE FROM detected_events WHERE routine_id=? AND source='AI_DETECTED'", (routine_id,))
-            for ev in events:
-                db.execute(
-                    "INSERT INTO detected_events "
-                    "(id,routine_id,event_type,start_time,end_time,confidence,severity,"
-                    "evidence,affects_score,source) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (_uid(), routine_id, ev["event_type"], ev["start_time"], ev["end_time"],
-                     ev["confidence"], ev.get("severity"), json.dumps(ev.get("evidence", {})),
-                     1 if ev.get("affects_score", False) else 0, "AI_DETECTED"))
-            db.commit()
-            upd(82, "Calculating confidence", "Scoring AI quality")
-
-            # ── Confidence score ─────────────────────────────────────────────
-            confs     = [pf["conf"] for pf in pose_frames if pf["conf"] > 0]
-            avg_conf  = float(np.mean(confs)) if confs else 0.0
-            low_conf  = sum(1 for c in confs if c < 0.5)
-            no_det    = sum(1 for pf in pose_frames if pf["conf"] == 0)
-            total     = max(len(pose_frames), 1)
-            warnings  = []
-            if low_conf / total > 0.3: warnings.append("high_low_confidence_ratio")
-            if no_det  / total > 0.2:  warnings.append("out_of_frame")
-            overall_conf = max(0.0, min(1.0,
-                avg_conf * (1 - low_conf / total * 0.5) * (1 - no_det / total * 0.8)))
-
-            db.execute("UPDATE routines SET ai_confidence=?, confidence_warnings=? WHERE id=?",
-                       (round(overall_conf, 3), json.dumps(warnings), routine_id))
-            db.commit()
-            upd(90, "Calculating score")
-            calculate_score(routine_id)
-            upd(100, "Complete", f"{len(events)} events, {overall_conf:.0%} confidence")
-
-            db.execute("UPDATE analysis_jobs SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
-            db.execute("UPDATE routines SET status='ANALYZED' WHERE id=?", (routine_id,))
-            db.commit()
-
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            print("ANALYSIS FAILED:\n", tb)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print("ANALYSIS FAILED:\n", tb, flush=True)
+        try:
             db.execute("UPDATE analysis_jobs SET status='FAILED', error_message=?, completed_at=CURRENT_TIMESTAMP WHERE id=?",
                        (tb, job_id))
             db.execute("UPDATE routines SET status='FAILED' WHERE id=?", (routine_id,))
             db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 
 def extract_features(lms, pt, prev_lms, frame_idx):
@@ -1052,9 +1054,18 @@ def detect_events(frames, duration):
 
 
 def calculate_score(routine_id: str) -> dict:
-    """Calculate A/E/D scores from events and pose frames."""
+    """Calculate A/E/D scores — uses Flask request db (call from request context)."""
+    return _score_impl(routine_id, get_db())
+
+
+def _calculate_score_direct(routine_id: str, db) -> dict:
+    """Calculate A/E/D scores using a provided db connection (safe for background threads)."""
+    return _score_impl(routine_id, db)
+
+
+def _score_impl(routine_id: str, db) -> dict:
+    """Core scoring logic."""
     import numpy as np
-    db = get_db()
     events = db.execute("SELECT * FROM detected_events WHERE routine_id=?", (routine_id,)).fetchall()
     frames = db.execute("SELECT confidence, features FROM pose_frames WHERE routine_id=? ORDER BY timestamp",
                         (routine_id,)).fetchall()
