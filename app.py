@@ -580,9 +580,8 @@ def _download_model_at_startup():
 
 
 def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
-    """Background thread: MediaPipe Tasks pose analysis (v0.10+ API)."""
+    """Background thread: pure OpenCV motion analysis — no GPU libraries required."""
     import sqlite3 as _sq
-    # Direct connection — Flask g is request-scoped, not available in threads
     db = _sq.connect(str(DB_PATH), detect_types=_sq.PARSE_DECLTYPES)
     db.row_factory = _sq.Row
     db.execute("PRAGMA journal_mode=WAL")
@@ -599,7 +598,8 @@ def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
         db.commit()
         upd(5, "Loading video", "Opening with OpenCV")
 
-        import cv2, numpy as np
+        import cv2
+        import numpy as np
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -618,92 +618,121 @@ def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
                            "file_size": Path(video_path).stat().st_size})
         db.execute("UPDATE routines SET video_metadata=? WHERE id=?", (meta, routine_id))
         db.commit()
-        upd(12, "Loading pose model", "Checking for model file")
+        upd(15, "Analysing motion", f"{duration:.1f}s @ {fps:.0f}fps")
 
-        import mediapipe as mp
-        VisionRunningMode  = mp.tasks.vision.RunningMode
-        PoseLandmarker     = mp.tasks.vision.PoseLandmarker
-        PoseLandmarkerOpts = mp.tasks.vision.PoseLandmarkerOptions
-        BaseOptions        = mp.tasks.BaseOptions
+        # ── Pure OpenCV motion analysis ─────────────────────────────────────
+        # Sample every 80ms
+        frame_step     = max(2, int(fps * 0.08))
+        pose_frames    = []
+        prev_gray      = None
+        prev_com_y     = None
+        frame_idx      = 0
+        total_expected = max(1, int(n_frames / frame_step))
 
-        model_path = _get_pose_model()
-        upd(15, "Extracting frames", f"{duration:.1f}s @ {fps:.0f}fps")
+        cap = cv2.VideoCapture(video_path)
 
-        options = PoseLandmarkerOpts(
-            base_options=BaseOptions(model_asset_path=model_path),
-            running_mode=VisionRunningMode.IMAGE,
-            num_poses=1,
-            min_pose_detection_confidence=0.4,
-            min_pose_presence_confidence=0.4,
-            min_tracking_confidence=0.4,
-            output_segmentation_masks=False,
-        )
+        # Background subtractor to detect person region
+        bg_sub = cv2.createBackgroundSubtractorMOG2(history=50, varThreshold=40, detectShadows=False)
 
-        sample_interval = 0.08   # every 80ms
-        frame_step      = max(2, int(fps * sample_interval))
-        pose_frames     = []
-        prev_lms_raw    = None
+        # Warm up background subtractor with first 30 frames
+        for _ in range(min(30, n_frames)):
+            ret, frame = cap.read()
+            if ret:
+                bg_sub.apply(frame)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        with PoseLandmarker.create_from_options(options) as landmarker:
-            cap           = cv2.VideoCapture(video_path)
-            frame_idx     = 0
-            total_expected = max(1, int(n_frames / frame_step))
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            if frame_idx % frame_step == 0:
+                timestamp  = frame_idx / fps
+                gray       = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                h, w       = gray.shape
+                features   = {}
+                confidence = 0.0
 
-                if frame_idx % frame_step == 0:
-                    timestamp = frame_idx / fps
-                    rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    result    = landmarker.detect(mp_image)
+                # ── Detect person region via background subtraction ──────────
+                fg_mask = bg_sub.apply(frame)
+                # Clean up mask
+                kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
+                fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
 
-                    if result.pose_landmarks and len(result.pose_landmarks) > 0:
-                        lms        = result.pose_landmarks[0]
-                        key_vis    = [lms[i].visibility for i in [11,12,23,24,25,26,27,28] if i < len(lms)]
-                        confidence = float(np.mean(key_vis)) if key_vis else 0.0
+                # Find largest contour = person
+                contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                person_box  = None
+                if contours:
+                    largest = max(contours, key=cv2.contourArea)
+                    area    = cv2.contourArea(largest)
+                    if area > (h * w * 0.005):  # at least 0.5% of frame
+                        x, y, bw, bh = cv2.boundingRect(largest)
+                        person_box   = (x, y, bw, bh)
+                        confidence   = min(0.9, float(area) / (h * w * 0.15))
 
-                        def pt(idx):
-                            if idx >= len(lms): return None
-                            lm = lms[idx]
-                            return np.array([lm.x, lm.y]) if lm.visibility > 0.3 else None
+                        # COM = centre of bounding box, normalised 0-1
+                        com_x = float(x + bw / 2) / w
+                        com_y = float(y + bh / 2) / h
+                        features["com_x"]       = com_x
+                        features["com_y"]       = com_y
+                        features["is_elevated"] = bool(com_y < 0.40)
+                        features["near_floor"]  = bool(com_y > 0.68)
+                        features["foot_height"] = float(1.0 - (y + bh) / h)
+                        # Aspect ratio: tall = standing, wide = floor
+                        features["aspect_ratio"] = float(bh / max(bw, 1))
+                        # Normalised bounding box height = person extension
+                        features["body_height_norm"] = float(bh / h)
+                        # Width spread (useful for split detection)
+                        features["body_width_norm"]  = float(bw / w)
 
-                        features = extract_features(lms, pt, prev_lms_raw, frame_idx)
-                        features_json = json.dumps({
-                            k: bool(v)  if isinstance(v, (bool, np.bool_)) else
-                               float(v) if isinstance(v, (float, np.floating, int, np.integer)) else v
-                            for k, v in features.items()
-                            if not isinstance(v, (dict, list))
-                        })
-
-                        db.execute(
-                            "INSERT INTO pose_frames (id,routine_id,timestamp,frame_index,confidence,features) "
-                            "VALUES (?,?,?,?,?,?)",
-                            (_uid(), routine_id, round(timestamp, 3), frame_idx,
-                             round(confidence, 3), features_json))
-                        pose_frames.append({"t": timestamp, "conf": confidence,
-                                            "features": features, "lms": lms})
-                        prev_lms_raw = lms
+                # ── Optical flow for movement speed ──────────────────────────
+                if prev_gray is not None:
+                    flow = cv2.calcOpticalFlowFarneback(
+                        prev_gray, gray, None,
+                        pyr_scale=0.5, levels=3, winsize=15,
+                        iterations=3, poly_n=5, poly_sigma=1.2, flags=0)
+                    mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+                    # Only measure flow in person region if available
+                    if person_box is not None:
+                        x, y, bw, bh = person_box
+                        region_mag   = mag[y:y+bh, x:x+bw]
+                        mean_flow    = float(np.mean(region_mag)) if region_mag.size > 0 else float(np.mean(mag))
                     else:
-                        pose_frames.append({"t": frame_idx / fps, "conf": 0.0,
-                                            "features": {}, "lms": None})
+                        mean_flow = float(np.mean(mag))
 
-                    processed = len(pose_frames)
-                    if processed % 10 == 0:
-                        db.commit()
-                        progress = 15 + int((processed / total_expected) * 55)
-                        upd(min(70, progress), "Pose estimation", f"{processed} frames")
+                    features["movement_speed"] = mean_flow
+                    if prev_com_y is not None and "com_y" in features:
+                        features["com_velocity_y"] = float((features["com_y"] - prev_com_y) / 0.08)
 
-                frame_idx += 1
+                prev_gray   = gray
+                prev_com_y  = features.get("com_y")
 
-            cap.release()
+                features_json = json.dumps({
+                    k: float(v) if isinstance(v, (float, int, np.floating, np.integer)) else bool(v)
+                    for k, v in features.items()
+                })
 
+                db.execute(
+                    "INSERT INTO pose_frames (id,routine_id,timestamp,frame_index,confidence,features) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (_uid(), routine_id, round(timestamp, 3), frame_idx,
+                     round(confidence, 3), features_json))
+                pose_frames.append({"t": timestamp, "conf": confidence, "features": features})
+
+                processed = len(pose_frames)
+                if processed % 15 == 0:
+                    db.commit()
+                    progress = 15 + int((processed / total_expected) * 55)
+                    upd(min(70, progress), "Analysing motion", f"{processed} frames")
+
+            frame_idx += 1
+
+        cap.release()
         db.commit()
-        upd(72, "Detecting events", f"Analysing {len(pose_frames)} pose frames")
+        upd(72, "Detecting events", f"{len(pose_frames)} frames analysed")
 
-        events = detect_events(pose_frames, duration)
+        events = detect_events_cv(pose_frames, duration)
         db.execute("DELETE FROM detected_events WHERE routine_id=? AND source='AI_DETECTED'", (routine_id,))
         for ev in events:
             db.execute(
@@ -714,28 +743,23 @@ def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
                  ev["confidence"], ev.get("severity"), json.dumps(ev.get("evidence", {})),
                  1 if ev.get("affects_score", False) else 0, "AI_DETECTED"))
         db.commit()
-        upd(82, "Calculating confidence")
+        upd(85, "Calculating score")
 
         confs        = [pf["conf"] for pf in pose_frames if pf["conf"] > 0]
         avg_conf     = float(np.mean(confs)) if confs else 0.0
-        low_conf     = sum(1 for c in confs if c < 0.5)
-        no_det       = sum(1 for pf in pose_frames if pf["conf"] == 0)
+        low_conf     = sum(1 for c in confs if c < 0.3)
         total_frames = max(len(pose_frames), 1)
         warnings     = []
-        if low_conf / total_frames > 0.3: warnings.append("high_low_confidence_ratio")
-        if no_det   / total_frames > 0.2: warnings.append("out_of_frame")
-        overall_conf = max(0.0, min(1.0,
-            avg_conf * (1 - low_conf / total_frames * 0.5) * (1 - no_det / total_frames * 0.8)))
+        if low_conf / total_frames > 0.4: warnings.append("high_low_confidence_ratio")
+        overall_conf = max(0.0, min(1.0, avg_conf * (1 - low_conf / total_frames * 0.5)))
 
         db.execute("UPDATE routines SET ai_confidence=?, confidence_warnings=? WHERE id=?",
                    (round(overall_conf, 3), json.dumps(warnings), routine_id))
         db.commit()
-        upd(90, "Calculating score")
 
-        # calculate_score needs its own db connection too
         _calculate_score_direct(routine_id, db)
+        upd(100, "Complete", f"{len(events)} events, {overall_conf:.0%} confidence")
 
-        upd(100, "Complete", f"{len(events)} events detected, confidence {overall_conf:.0%}")
         db.execute("UPDATE analysis_jobs SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
         db.execute("UPDATE routines SET status='ANALYZED' WHERE id=?", (routine_id,))
         db.commit()
@@ -755,101 +779,8 @@ def run_analysis_bg(routine_id: str, job_id: str, video_path: str):
         db.close()
 
 
-def extract_features(lms, pt, prev_lms, frame_idx):
-    """Extract rich movement features from MediaPipe landmarks."""
-    import numpy as np
-    f = {}
-    try:
-        # ── Centre of mass (hip midpoint) ────────────────────────────────
-        lh = pt(23); rh = pt(24)
-        if lh is not None and rh is not None:
-            com = (lh + rh) / 2
-            f["com_x"] = float(com[0])
-            f["com_y"] = float(com[1])
-            f["is_elevated"] = bool(float(com[1]) < 0.42)
-
-        # ── Foot positions ───────────────────────────────────────────────
-        la = pt(27); ra = pt(28)
-        lhe = pt(29); rhe = pt(30)   # heels
-        if la is not None and ra is not None:
-            avg_foot_y = float((la[1] + ra[1]) / 2)
-            f["near_floor"]  = bool(avg_foot_y > 0.72)
-            f["foot_height"] = float(1.0 - avg_foot_y)
-            f["foot_spread"] = float(abs(la[0] - ra[0]))  # lateral split indicator
-
-        # ── Joint angles ─────────────────────────────────────────────────
-        def angle(a, b, c):
-            if a is None or b is None or c is None: return None
-            ba = a - b; bc = c - b
-            n1 = np.linalg.norm(ba); n2 = np.linalg.norm(bc)
-            if n1 < 1e-6 or n2 < 1e-6: return None
-            cos = np.clip(np.dot(ba, bc) / (n1 * n2), -1.0, 1.0)
-            return float(np.degrees(np.arccos(cos)))
-
-        # Knee angles
-        lk = angle(pt(23), pt(25), pt(27))
-        rk = angle(pt(24), pt(26), pt(28))
-        if lk is not None and rk is not None:
-            f["knee_angle_l"]  = float(lk)
-            f["knee_angle_r"]  = float(rk)
-            f["knee_avg"]      = float((lk + rk) / 2)
-            f["leg_extension"] = float((lk + rk) / (2 * 180))
-            f["body_symmetry"] = float(max(0.0, 1.0 - abs(lk - rk) / 90.0))
-
-        # Hip angles (leg raise)
-        lhip = angle(pt(11), pt(23), pt(25))
-        rhip = angle(pt(12), pt(24), pt(26))
-        if lhip is not None and rhip is not None:
-            f["hip_angle_l"] = float(lhip)
-            f["hip_angle_r"] = float(rhip)
-            f["hip_avg"]     = float((lhip + rhip) / 2)
-
-        # Elbow / arm extension
-        le = angle(pt(11), pt(13), pt(15))
-        re = angle(pt(12), pt(14), pt(16))
-        if le is not None and re is not None:
-            f["arm_extension"] = float((le + re) / (2 * 180))
-
-        # Shoulder width (turn indicator — narrows when rotating)
-        ls = pt(11); rs = pt(12)
-        if ls is not None and rs is not None:
-            f["shoulder_width"] = float(abs(ls[0] - rs[0]))
-
-        # ── Torso lean ───────────────────────────────────────────────────
-        if ls is not None and rs is not None and lh is not None and rh is not None:
-            sm = (ls + rs) / 2
-            hm = (lh + rh) / 2
-            tv = sm - hm
-            norm = np.linalg.norm(tv)
-            if norm > 1e-6:
-                cos = np.clip(np.dot(tv, np.array([0.0, -1.0])) / norm, -1.0, 1.0)
-                f["torso_lean"] = float(np.degrees(np.arccos(cos)))
-
-        # ── Spine length (compression indicator) ─────────────────────────
-        nose = pt(0)
-        if nose is not None and lh is not None and rh is not None:
-            hm = (lh + rh) / 2
-            f["spine_length"] = float(np.linalg.norm(nose - hm))
-
-        # ── Movement speed & acceleration ────────────────────────────────
-        if prev_lms is not None and lh is not None and rh is not None:
-            try:
-                plh = np.array([prev_lms[23].x, prev_lms[23].y])
-                prh = np.array([prev_lms[24].x, prev_lms[24].y])
-                pcom = (plh + prh) / 2
-                disp = float(np.linalg.norm(com - pcom))
-                f["movement_speed"] = disp / 0.08   # per second (80ms interval)
-                f["com_velocity_y"] = float((com[1] - pcom[1]) / 0.08)  # + = downward
-            except Exception:
-                pass
-
-    except Exception:
-        pass
-    return f
-
-
-def detect_events(frames, duration):
-    """Improved event detection with better thresholds and deduplication."""
+def detect_events_cv(frames, duration):
+    """Event detection from pure OpenCV motion features."""
     import numpy as np
     events = []
     if not frames:
@@ -857,205 +788,122 @@ def detect_events(frames, duration):
 
     n = len(frames)
 
-    # ── Calibrate baseline from calmest section ──────────────────────────────
-    # Use median of all com_y values as baseline (more robust than first-10 mean)
-    all_ys = [fr["features"].get("com_y") for fr in frames if fr["features"].get("com_y") is not None]
+    # Calibrate baselines
+    all_ys = [f["features"].get("com_y") for f in frames if f["features"].get("com_y") is not None]
     if not all_ys:
         return events
-    baseline_y = float(np.percentile(all_ys, 60))  # 60th pct = typical standing height
+    baseline_y = float(np.percentile(all_ys, 60))
 
-    # Calibrate shoulder width baseline for turn detection
-    all_sw = [fr["features"].get("shoulder_width") for fr in frames if fr["features"].get("shoulder_width")]
-    sw_baseline = float(np.percentile(all_sw, 75)) if all_sw else None
+    all_speeds = [f["features"].get("movement_speed", 0) for f in frames]
+    speed_p75  = float(np.percentile([s for s in all_speeds if s > 0], 75)) if any(s > 0 for s in all_speeds) else 0.1
 
-    def add_event(etype, t0, t1, conf, sev, affects, explanation, min_gap=1.0):
-        """Add event only if not too close to an existing one of the same type."""
+    def add(etype, t0, t1, conf, sev, affects, explanation, min_gap=1.0):
         for ev in events:
             if ev["event_type"] == etype and abs(ev["start_time"] - t0) < min_gap:
                 return
         events.append({
-            "event_type": etype,
-            "start_time": round(t0, 3),
-            "end_time":   round(t1, 3),
-            "confidence": round(min(0.95, max(0.3, conf)), 3),
-            "severity":   sev,
+            "event_type":    etype,
+            "start_time":    round(t0, 3),
+            "end_time":      round(t1, 3),
+            "confidence":    round(min(0.92, max(0.35, conf)), 3),
+            "severity":      sev,
             "affects_score": affects,
-            "evidence": {"explanation": explanation}
+            "evidence":      {"explanation": explanation}
         })
 
-    # ── 1. JUMP detection ────────────────────────────────────────────────────
-    # Detect upward COM displacement above baseline
-    JUMP_THRESH = 0.05   # 5% elevation above baseline
+    # ── 1. JUMP: COM rises above baseline ────────────────────────────────────
     in_jump = False; j_start = 0; j_max_elev = 0; j_frames = 0
-    for i, fr in enumerate(frames):
+    for fr in frames:
         cy = fr["features"].get("com_y")
-        vy = fr["features"].get("com_velocity_y", 0)
-        if cy is None:
-            continue
+        if cy is None: continue
         elev = baseline_y - cy
-        if elev > JUMP_THRESH:
-            if not in_jump:
-                in_jump = True; j_start = fr["t"]; j_max_elev = elev; j_frames = 0
-            j_max_elev = max(j_max_elev, elev)
-            j_frames += 1
+        if elev > 0.06:
+            if not in_jump: in_jump = True; j_start = fr["t"]; j_max_elev = 0
+            j_max_elev = max(j_max_elev, elev); j_frames += 1
         else:
             if in_jump and j_frames >= 2:
-                conf = min(0.93, 0.50 + j_max_elev * 3.5)
-                leg_ext = fr["features"].get("leg_extension", 0.7)
-                add_event("jump", j_start, fr["t"], conf, None, False,
-                    f"Centre of mass rose {j_max_elev:.1%} above baseline. "
-                    f"Leg extension: {leg_ext:.0%}. Duration: {fr['t']-j_start:.2f}s.")
+                conf = min(0.90, 0.50 + j_max_elev * 3.0)
+                add("jump", j_start, fr["t"], conf, None, False,
+                    f"Centre of mass rose {j_max_elev:.1%} above baseline over {j_frames} frames.")
             in_jump = False; j_max_elev = 0; j_frames = 0
 
-    # ── 2. TURN detection ────────────────────────────────────────────────────
-    # Shoulder width narrows significantly when body rotates
-    if sw_baseline and sw_baseline > 0.01:
-        in_turn = False; t_start = 0; t_min_width = sw_baseline; t_frames = 0
-        for fr in frames:
-            sw = fr["features"].get("shoulder_width")
-            if sw is None:
-                continue
-            ratio = sw / sw_baseline
-            if ratio < 0.6:   # shoulder width < 60% of baseline = rotation
-                if not in_turn:
-                    in_turn = True; t_start = fr["t"]; t_min_width = sw; t_frames = 0
-                t_min_width = min(t_min_width, sw)
-                t_frames += 1
-            else:
-                if in_turn and t_frames >= 2:
-                    narrowing = 1.0 - (t_min_width / sw_baseline)
-                    conf = min(0.90, 0.45 + narrowing * 1.5)
-                    # Estimate rotations from duration and narrowing
-                    dur = fr["t"] - t_start
-                    est_rots = max(1, round(dur / 0.4))
-                    add_event("turn", t_start, fr["t"], conf, None, False,
-                        f"Shoulder width narrowed {narrowing:.0%} — body rotation detected. "
-                        f"~{est_rots} rotation(s), {dur:.2f}s duration.")
-                in_turn = False; t_min_width = sw_baseline; t_frames = 0
+    # ── 2. TURN: high speed + stable COM height ───────────────────────────────
+    for i in range(3, n - 3):
+        speeds = [frames[j]["features"].get("movement_speed", 0) for j in range(i-2, i+3)]
+        cys    = [frames[j]["features"].get("com_y") for j in range(i-2, i+3) if frames[j]["features"].get("com_y")]
+        if not cys: continue
+        avg_speed = float(np.mean(speeds))
+        cy_var    = float(np.std(cys))
+        # Fast movement but stable vertical position = turn (not jump/fall)
+        if avg_speed > speed_p75 * 1.5 and cy_var < 0.04:
+            conf = min(0.82, 0.45 + avg_speed / speed_p75 * 0.15)
+            add("turn", frames[i-2]["t"], frames[i+2]["t"], conf, None, False,
+                f"High rotational motion detected (speed {avg_speed:.3f}, vertical stability {cy_var:.3f}).",
+                min_gap=1.2)
 
-    # ── 3. LEAP / HIGH JUMP (split leap) ─────────────────────────────────────
-    # Jump + wide foot spread simultaneously
-    for fr in frames:
-        cy  = fr["features"].get("com_y")
-        fs  = fr["features"].get("foot_spread", 0)
-        hip = fr["features"].get("hip_avg", 180)
-        lk  = fr["features"].get("knee_angle_l", 180)
-        rk  = fr["features"].get("knee_angle_r", 180)
-        if cy is None:
-            continue
-        elev = baseline_y - cy
-        if elev > 0.04 and fs > 0.25 and hip is not None and hip < 120:
-            conf = min(0.88, 0.50 + elev * 2.0 + fs * 0.5)
-            add_event("leap", fr["t"] - 0.1, fr["t"] + 0.3, conf, None, False,
-                f"Airborne with wide leg spread ({fs:.2f} normalised). "
-                f"Hip angle: {hip:.0f}°. Possible split leap.", min_gap=1.5)
-
-    # ── 4. FLOOR SUPPORT ─────────────────────────────────────────────────────
+    # ── 3. FLOOR SUPPORT: low COM + wide body + slow movement ─────────────────
     in_supp = False; s_start = 0; s_frames = 0
     for fr in frames:
-        cy   = fr["features"].get("com_y", 0)
-        near = fr["features"].get("near_floor", False)
-        arm  = fr["features"].get("arm_extension", 0)
-        lean = abs(fr["features"].get("torso_lean", 90))
-        # Low COM + feet near floor + arms extended + torso not upright
-        if cy > 0.65 and near and arm > 0.55 and lean > 25:
-            if not in_supp:
-                in_supp = True; s_start = fr["t"]; s_frames = 0
+        cy     = fr["features"].get("com_y", 0)
+        aspect = fr["features"].get("aspect_ratio", 1.5)
+        speed  = fr["features"].get("movement_speed", 0)
+        # Low COM + body more horizontal (low aspect ratio) + slow = floor support
+        if cy > 0.62 and aspect < 1.2 and speed < speed_p75 * 0.5:
+            if not in_supp: in_supp = True; s_start = fr["t"]; s_frames = 0
             s_frames += 1
         else:
-            if in_supp and s_frames >= 3:
-                dur = fr["t"] - s_start
-                conf = min(0.88, 0.50 + s_frames * 0.04)
-                add_event("floor_support", s_start, fr["t"], conf, None, False,
-                    f"Floor support position held for {dur:.1f}s. "
-                    f"Arm extension: {arm:.0%}.")
+            if in_supp and s_frames >= 4:
+                dur  = fr["t"] - s_start
+                conf = min(0.85, 0.50 + s_frames * 0.04)
+                add("floor_support", s_start, fr["t"], conf, None, False,
+                    f"Athlete in floor position for {dur:.1f}s (low COM, horizontal body).")
             in_supp = False; s_frames = 0
 
-    # ── 5. SPLIT POSITION (on floor) ─────────────────────────────────────────
+    # ── 4. LEAP / HIGH JUMP: elevated + wide body ────────────────────────────
     for fr in frames:
-        cy  = fr["features"].get("com_y", 0)
-        fs  = fr["features"].get("foot_spread", 0)
-        lk  = fr["features"].get("knee_angle_l")
-        rk  = fr["features"].get("knee_angle_r")
-        if lk is None or rk is None:
-            continue
-        # Low COM + extended knees + wide foot spread = split
-        if cy > 0.60 and fs > 0.30 and lk > 150 and rk > 150:
-            conf = min(0.85, 0.45 + fs * 1.0 + (lk + rk - 300) / 300)
-            add_event("split", fr["t"] - 0.05, fr["t"] + 0.4, conf, None, False,
-                f"Split position detected. Foot spread: {fs:.2f}. "
-                f"Knee angles: L={lk:.0f}° R={rk:.0f}°.", min_gap=2.0)
+        cy    = fr["features"].get("com_y")
+        bw    = fr["features"].get("body_width_norm", 0)
+        speed = fr["features"].get("movement_speed", 0)
+        if cy is None: continue
+        elev = baseline_y - cy
+        if elev > 0.05 and bw > 0.25 and speed > speed_p75:
+            conf = min(0.85, 0.48 + elev * 2.0 + bw * 0.5)
+            add("leap", fr["t"] - 0.08, fr["t"] + 0.25, conf, None, False,
+                f"Elevated airborne position with wide body spread ({bw:.2f} width).", min_gap=1.5)
 
-    # ── 6. FALL detection ────────────────────────────────────────────────────
-    # Rapid downward COM displacement exceeding normal landing
-    for i in range(4, n):
-        t_now  = frames[i]["t"]
+    # ── 5. FALL: rapid COM drop ───────────────────────────────────────────────
+    for i in range(3, n):
         cy_now = frames[i]["features"].get("com_y")
-        cy_ago = frames[i-4]["features"].get("com_y")
-        if cy_now is None or cy_ago is None:
-            continue
-        drop = cy_now - cy_ago   # positive = COM moved down
-        if drop > 0.18:
-            conf = min(0.92, 0.55 + drop * 1.5)
-            add_event("fall", frames[i-4]["t"], t_now, conf, "major", True,
-                f"Rapid body drop of {drop:.1%} in {t_now - frames[i-4]['t']:.2f}s — likely fall.",
-                min_gap=2.0)
+        cy_ago = frames[i-3]["features"].get("com_y")
+        if cy_now is None or cy_ago is None: continue
+        drop = cy_now - cy_ago
+        if drop > 0.20:
+            conf = min(0.90, 0.55 + drop * 1.5)
+            add("fall", frames[i-3]["t"], frames[i]["t"], conf, "major", True,
+                f"Rapid body drop of {drop:.1%} detected — possible fall.", min_gap=2.0)
 
-    # ── 7. LANDING INSTABILITY ───────────────────────────────────────────────
-    # High speed followed by oscillation near floor
-    for i in range(6, n):
+    # ── 6. LANDING INSTABILITY: speed spike followed by oscillation near floor ─
+    for i in range(5, n):
         near  = frames[i]["features"].get("near_floor", False)
-        speed = frames[i]["features"].get("movement_speed", 0)
-        if not near:
-            continue
-        recent_speeds = [frames[j]["features"].get("movement_speed", 0) for j in range(i-5, i+1)]
-        if max(recent_speeds[:3]) > 0.08 and float(np.std(recent_speeds[3:])) > 0.02:
-            conf = min(0.78, 0.40 + float(np.std(recent_speeds)) * 3.0)
-            add_event("landing_instability", frames[i-3]["t"], frames[i]["t"], conf, "minor", True,
-                "Speed variance after ground contact suggests unstable landing.",
-                min_gap=1.5)
+        if not near: continue
+        recent = [frames[j]["features"].get("movement_speed", 0) for j in range(i-4, i+1)]
+        if max(recent[:2]) > speed_p75 * 1.2 and float(np.std(recent[2:])) > 0.015:
+            conf = min(0.75, 0.40 + float(np.std(recent)) * 2.0)
+            add("landing_instability", frames[i-3]["t"], frames[i]["t"], conf, "minor", True,
+                "Speed oscillation after ground contact — possible unstable landing.", min_gap=1.5)
 
-    # ── 8. POOR ALIGNMENT ───────────────────────────────────────────────────
-    pa_start = None; pa_frames = 0
-    for fr in frames:
-        lean = abs(fr["features"].get("torso_lean", 0))
-        spine = fr["features"].get("spine_length")
-        # Significant lean while standing (not in floor support)
-        near = fr["features"].get("near_floor", False)
-        if 22 < lean < 60 and not near:
-            if pa_start is None:
-                pa_start = fr["t"]; pa_frames = 0
-            pa_frames += 1
-        else:
-            if pa_start is not None and pa_frames >= 5:
-                dur = fr["t"] - pa_start
-                conf = min(0.72, 0.35 + pa_frames * 0.05)
-                add_event("poor_alignment", pa_start, fr["t"], conf, "minor", True,
-                    f"Torso lean exceeded 22° for {pa_frames} frames ({dur:.1f}s).",
-                    min_gap=2.0)
-            pa_start = None; pa_frames = 0
-
-    # ── 9. OUT OF FRAME ──────────────────────────────────────────────────────
-    oof_start = None; oof_frames = 0
-    for fr in frames:
-        if fr["conf"] < 0.28:
-            if oof_start is None:
-                oof_start = fr["t"]; oof_frames = 0
-            oof_frames += 1
-        else:
-            if oof_start is not None and oof_frames >= 3:
-                add_event("out_of_frame", oof_start, fr["t"], 0.90, "warning", True,
-                    f"Low pose confidence for {oof_frames} frames — athlete may be out of frame.",
-                    min_gap=1.0)
-            oof_start = None; oof_frames = 0
+    # ── 7. HIGH ACTIVITY BURST (aerobics-specific) ────────────────────────────
+    window = 5
+    for i in range(window, n - window):
+        window_speeds = [frames[j]["features"].get("movement_speed", 0) for j in range(i-window, i+window)]
+        avg = float(np.mean(window_speeds))
+        if avg > speed_p75 * 2.0:
+            add("possible_difficulty_element", frames[i-window]["t"], frames[i+window]["t"],
+                min(0.70, 0.40 + avg / speed_p75 * 0.10), None, False,
+                f"High intensity movement burst detected (avg speed {avg:.3f}).", min_gap=2.0)
 
     events.sort(key=lambda e: e["start_time"])
     return events
-
-
-def calculate_score(routine_id: str) -> dict:
-    """Calculate A/E/D scores — uses Flask request db (call from request context)."""
-    return _score_impl(routine_id, get_db())
 
 
 def _calculate_score_direct(routine_id: str, db) -> dict:
@@ -1215,7 +1063,6 @@ if __name__ == "__main__":
     print("🚀 Initialising AeroScore AI...")
     init_db()
     print("✅ Database ready")
-    _download_model_at_startup()   # pre-fetch pose model in background
     port = int(os.environ.get("PORT", 8080))
     print(f"🌐 Starting server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

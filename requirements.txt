@@ -1,12 +1,4 @@
 flask
 numpy
 PyJWT
-# Install headless OpenCV BEFORE mediapipe to avoid the GUI version being pulled in
 opencv-python-headless
-# mediapipe dependencies (manually listed to allow --no-deps on mediapipe itself)
-absl-py
-flatbuffers
-sounddevice
-matplotlib
-attrs
-protobuf
