@@ -16,7 +16,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install headless OpenCV first, then mediapipe without its opencv dependency
-RUN pip install --no-cache-dir flask numpy PyJWT opencv-python-headless \
+RUN pip install --no-cache-dir flask numpy PyJWT opencv-python-headless certifi \
     && pip install --no-cache-dir mediapipe --no-deps \
     && pip install --no-cache-dir absl-py flatbuffers sounddevice matplotlib attrs protobuf
 
