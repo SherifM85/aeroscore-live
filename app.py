@@ -1205,6 +1205,6 @@ if __name__ == "__main__":
     init_db()
     print("✅ Database ready")
     _download_model_at_startup()   # pre-fetch pose model in background
-    port = int(os.environ.get("PORT", 5050))
+    port = int(os.environ.get("PORT", 8080))
     print(f"🌐 Starting server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
